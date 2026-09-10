@@ -1,0 +1,4 @@
+mod/.godot/
+mod/bin/
+mod/obj/
+*.user

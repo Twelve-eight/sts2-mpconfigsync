@@ -1,0 +1,4 @@
+{
+  "MPCONFIGSYNC-ENABLED.title": "启用联机配置同步",
+  "MPCONFIGSYNC-ENABLED.hover.desc": "开启后: 作为主机时, 每次联机开局自动把本机全部 mod 配置下发给所有队友; 作为队友时, 接受主机下发的配置并写入本地. 两端都开启才生效."
+}
