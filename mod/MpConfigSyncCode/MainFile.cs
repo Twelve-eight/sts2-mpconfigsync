@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 
 using BaseLib.Config;
@@ -7,6 +8,7 @@ using Godot;
 
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace MpConfigSync.MpConfigSyncCode;
 
@@ -28,7 +30,8 @@ public partial class MainFile : Node
         Godot.Bridge.ScriptManagerBridge.LookupScriptsInAssembly(Assembly.GetExecutingAssembly());
 
         // Targeted Harmony patches, applied per-type with try/catch - never PatchAll
-        // (one bad patch silently strips the rest). We have exactly one patch class.
+        // (one bad patch silently strips the rest). Two patch classes: host push at
+        // run start, local-settings restore at run end.
         try
         {
             var harmony = new HarmonyLib.Harmony(ModId);
@@ -39,6 +42,6 @@ public partial class MainFile : Node
             Log.Error($"Failed to apply Harmony patches: {e}");
         }
 
-        Log.Info($"{ModId} initialized (host pushes config snapshot at multiplayer run start)");
+        Log.Info($"{ModId} initialized (host pushes config snapshot at run start; receiver restores user's own settings at run end - config files are never rewritten)");
     }
 }
