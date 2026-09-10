@@ -1,0 +1,44 @@
+[h1]MpConfigSync (Host Config Auto-Push)[/h1]
+
+At multiplayer run start, the host automatically pushes all mod config values to every peer - eliminating the state-divergence class caused by mismatched local config files.
+
+[hr]
+
+[h2]The problem it solves[/h2]
+
+Slay the Spire 2 multiplayer compares checksums after every action: any difference between the two ends' game state triggers a divergence disconnect. But mod settings live in each player's local config files - if the host has a toggle on and a peer has it off, the same event option resolves into completely different effects on each end, and the run blows up on the spot.
+
+Real case: the host had Acts from the Past's Rebalanced Mode enabled, a peer did not - in the Vampires event all four players clicked the same option, everyone got the Blood Bank relic on the host's end and nothing on the peer's end, and the session diverged instantly.
+
+[h2]How it works[/h2]
+
+[list]
+[*]At the multiplayer run-start moment, the host snapshots every registered mod config
+[*]The snapshot is pushed reliably to all peers over BaseLib's custom message channel
+[*]Peers validate and apply each entry in memory and atomically persist it - effective immediately this run, and consistent for every future run
+[*]Mods that are not installed / unrecognized config keys are skipped automatically - never crashes
+[/list]
+
+[h2]Usage[/h2]
+
+[list]
+[*][b]The host and every peer must subscribe[/b] (the message must be parseable on both ends)
+[*]Settings -> Mod Settings -> MpConfigSync -> Enable MP config sync (on by default)
+[*]Then just play - the sync happens automatically at run start, zero interaction needed
+[/list]
+
+[hr]
+
+[h2]Requirements[/h2]
+
+[list]
+[*][b]Required[/b]: [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127]BaseLib[/url]
+[/list]
+
+[b]Important - BaseLib version note[/b]
+
+The Workshop BaseLib often lags behind the official GitHub. If BaseLib errors after a game update or this mod fails to load, get the latest version from GitHub:
+[list]
+[*][url=https://github.com/Alchyr/BaseLib-StS2/releases]GitHub Releases (recommended)[/url] - latest official build
+[*]Install: download the zip, extract into [code]Slay the Spire 2/mods/[/code], and [b]unsubscribe from the Workshop BaseLib[/b] (avoids double-loading)
+[/list]

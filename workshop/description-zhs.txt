@@ -1,0 +1,44 @@
+[h1]MpConfigSync(主机配置自动下发)[/h1]
+
+联机开局时,主机自动把全部 mod 配置推送给每一位队友,从根源上消除两端配置不同导致的联机分歧.
+
+[hr]
+
+[h2]它解决什么问题[/h2]
+
+杀戮尖塔 2 的联机采用逐动作校验和比对:两端游戏状态有任何不同就会触发分歧断线.而 mod 的设置项存在各自电脑的本地配置文件里 - 同一间房里,主机开了某个开关而队友没开,同一个事件选项就会在两端解析成完全不同的效果,当场炸档.
+
+真实案例:主机开了 Acts from the Past 的均衡模式(RebalancedMode),队友没开 - 吸血鬼事件里所有人点了同一个选项,主机端人人获得鲜血储蓄袋遗物,队友端什么都没有,当场分歧断线.
+
+[h2]工作方式[/h2]
+
+[list]
+[*]主机在联机开局瞬间快照本机全部 mod 配置
+[*]通过 BaseLib 的自定义消息通道可靠推送给所有队友
+[*]队友端逐条校验后写入内存并原子落盘 - 本局立即生效,后续对局保持一致
+[*]未安装的 mod / 不认识的配置项自动跳过,永不崩溃
+[/list]
+
+[h2]使用方法[/h2]
+
+[list]
+[*][b]主机的每一位队友都订阅本 mod[/b](消息必须两端都能解析)
+[*]设置 -> Mod 设置 -> MpConfigSync -> 启用联机配置同步(默认开启)
+[*]之后正常联机即可 - 开局自动完成,无需任何操作
+[/list]
+
+[hr]
+
+[h2]前置依赖[/h2]
+
+[list]
+[*][b]必须[/b]:[url=https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127]BaseLib[/url]
+[/list]
+
+[b]重要 - BaseLib 版本提示[/b]
+
+创意工坊的 BaseLib 更新经常落后于官方 GitHub.游戏版本更新后,如果工坊版 BaseLib 报错或本 mod 无法加载,请前往 GitHub 下载最新版:
+[list]
+[*][url=https://github.com/Alchyr/BaseLib-StS2/releases]GitHub Releases(推荐)[/url] - 最新正式版
+[*]安装方法:下载 zip,解压到 [code]Slay the Spire 2/mods/[/code],并[b]取消订阅工坊版 BaseLib[/b](避免双加载)
+[/list]
