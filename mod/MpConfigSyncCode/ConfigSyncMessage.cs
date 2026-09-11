@@ -17,6 +17,21 @@ namespace MpConfigSync.MpConfigSyncCode;
 ///
 /// Sent by the host once per run session (RunManager.InitializeShared postfix) via
 /// CustomMessageWrapper.Send. ShouldBroadcast=false: host-originated, no relay needed.
+///
+/// <para>
+/// Buffering: <c>ShouldBuffer</c> is deliberately NOT overridden, so it keeps
+/// <see cref="ICustomMessage"/>'s default of <c>true</c>. This is the intended
+/// behaviour, not an oversight. The host sends the snapshot from the
+/// RunManager.InitializeShared postfix, which runs after the run lobby has
+/// already enabled buffering (<c>StartRunLobby.cs:498</c> /
+/// <c>LoadRunLobby.cs:320</c>), and buffered messages are released by
+/// <c>RunManager.Launch()</c> (<c>RunManager.cs:711-717</c>,
+/// <c>SetBufferMessages(false)</c>). So the receiver applies the snapshot at
+/// launch, never during <c>InitializeShared</c> itself - which is exactly what we
+/// want, because it cannot race the synchronizers that <c>InitializeShared</c> is
+/// still building. Overriding <c>ShouldBuffer</c> to <c>false</c> would deliver
+/// the snapshot mid-initialisation instead and is strictly worse.
+/// </para>
 /// </summary>
 public class ConfigSyncMessage : ICustomMessage
 {

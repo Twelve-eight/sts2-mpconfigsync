@@ -71,3 +71,128 @@ DEVELOP.md 有三处描述的是已被 commit 772958af 取代的设计, 已改:
 ### 未做的验证 (保持未验证状态)
 真实双端联机的接收路径仍未执行过. 2026-09-10 那次事故只有一端装了本 mod, 对端把
 消息静默丢弃, 因此 apply 路径从未在真实对端运行. 本次没有第二个客户端, 无法补齐.
+
+## Session 3 - 2026-09-12 (第 8 步: 三缺陷修复 + 两项确认)
+
+来源: HANDOFF-2026-09-12.md §3.3 (三项已确认缺陷 + 两项"另需确认").
+范围由用户裁定: **只做 MpConfigSync 三缺陷**, 四个跨仓库审查 (Heartshake /
+MpConfigSync / Perfect / ChaosBridge) 不做.
+
+### 缺陷 #1 - 注释与代码矛盾 (MainFile.cs)
+
+原注释声称"逐类型 try/catch, 绝不用 PatchAll", 代码实际是
+`harmony.PatchAll(assembly)` 外包**一个** try/catch —— 任何一个补丁类抛异常,
+整批补丁全部不生效, 日志只有一行.
+
+改为 `ApplyPatches()`: 遍历 `assembly.GetTypes()`, 用 `HasHarmonyPatch(Type)`
+(= 带 `[HarmonyPatch]` 且非抽象非泛型) 预筛, 每个类型单独
+`harmony.CreateClassProcessor(type).Patch()`, 各自 try/catch.
+日志: 每类 `patched N method(s) via {FullName}`; 失败类
+`Harmony patch class {FullName} failed (continuing with the remaining classes): {e}`;
+末尾汇总 `Harmony: N method(s) patched across M type(s), K patch class(es) failed`.
+新增 `using System.Collections.Generic;`.
+
+### 缺陷 #2 - ConfigPropertyScanner.Scan 与它声称复刻的方法语义不一致
+
+原实现 `GetProperties(Public | Static | FlattenHierarchy)`, 注释说复刻 BaseLib 的
+`ModConfig.CheckConfigProperties`. 差别就在 `FlattenHierarchy`: 它会把**继承来的**
+public static 属性也返回, 而 BaseLib 的 `GetProperties()` (默认 DeclaredOnly) 不会
+—— 于是扫描器会把 BaseLib 根本不持久化的属性也纳入快照/下发/恢复, 客户端在
+SetValue 一个"本不该同步"的属性.
+
+改为逐条对齐 `BaseLib/Config/ModConfig.cs:143-153`:
+
+    foreach (PropertyInfo property in configType.GetProperties())
+    {
+        if (property.GetCustomAttribute<ConfigIgnoreAttribute>() != null) continue;
+        if (!property.CanRead || !property.CanWrite) continue;
+        if (property.GetMethod?.IsStatic != true) continue;
+        result.Add(property);
+    }
+
+注释里写明对齐依据与"为什么 FlattenHierarchy 是错的".
+
+### 缺陷 #3 - ShouldBuffer 用 ICustomMessage 默认值 (刻意保留 + 文档化)
+
+`ConfigSyncMessage` 没有覆写 `ShouldBuffer`, 保持接口默认 `true`.
+**判定: 这是正确行为, 不是遗漏** —— 只补文档, 不改代码. 证据链 (引擎 v0.111):
+
+- 开缓冲: `StartRunLobby.cs:498` / `LoadRunLobby.cs:320` `SetBufferMessages(true)`,
+  在 run 启动流程早期, 早于 `InitializeShared`.
+- 发送: 本 mod 在 `RunManager.InitializeShared` postfix 发送快照.
+- 释放: `RunManager.Launch()` (`RunManager.cs:711-717`) `SetBufferMessages(false)`
+  -> `NetMessageBus.SetBufferMessages` (`NetMessageBus.cs:107-125`) 逐条
+  `SendMessageToAllHandlers`. `Launch()` 由 `NGame.LoadRun` (`NGame.cs:1168`) /
+  `NGame.StartRun` (`NGame.cs:1186`) 调用, 在 `SetUp*` (即 InitializeShared) 之后.
+
+所以接收端是在 `Launch()` 时刻统一 apply, 不会插进 `InitializeShared` 正在构建
+同步器的过程中. 覆写成 `false` 反而会在初始化中途投递, 严格更差.
+`<para>` 块已写入 `ConfigSyncMessage` 的 XML 注释.
+
+### 另需确认 #1 - CleanUp 恢复路径是否覆盖全部结束方式  [已验证: 覆盖]
+
+读 `RunManager.CleanUp` (`RunManager.cs:1569-1616`) 与全部调用点, 逐条:
+
+| 结束方式 | 路径 | 到 CleanUp |
+|---|---|---|
+| 胜利 / 死亡 | GameOverScreen -> `NGame.ReturnToMainMenuAfterRun` -> `ReturnToMainMenu` -> `CleanUp()` (`NGame.cs:1075-1081`) | 是 |
+| 胜利且解锁新纪元 | GameOverScreen -> `NGame.GoToTimelineAfterRun` -> `GoToTimeline` -> `CleanUp()` (`NGame.cs:1067-1073`) | 是 |
+| 局内放弃 (单机) | `RunManager.Abandon()` -> `AbandonInternal()` -> `GuaranteeKillAllPlayers()` -> 死亡 -> 上一条 | 是 (经死亡) |
+| 局内放弃 (联机) | `RunLobby.AbandonRun()` -> 广播 `RunAbandonedMessage` -> 两端各自 `IRunLobbyListener.RunAbandoned()` -> `AbandonInternal()` -> 死亡 | 是 (经死亡) |
+| 暂停菜单"保存并退出" | `NPauseMenu.CloseToMenu()` -> `NGame.ReturnToMainMenu()` -> `CleanUp()` | 是 |
+| 暂停菜单"断开" (已断开时) | `NGame.ReturnToMainMenuAfterRun()` -> `CleanUp()` | 是 |
+| 本端掉线 (主机离开等) | `RunManager.LocalPlayerDisconnected(info)` -> 若非 QuitGameOver / 非 IsAbandoned / 非 GameOver -> `ReturnToMainMenuWithError` -> `NGame.ReturnToMainMenuAfterRun()` -> `CleanUp()` | 是 (三个例外恰好都是已有别的路径通向 CleanUp 的情形) |
+| 关窗口 / 退出进程 | `NRun._Notification(1006 = NOTIFICATION_PREDELETE)` -> `CleanUp(graceful:false)` (`NRun.cs:204-210`) | 是 |
+| Steam 覆盖层加入好友局 (局内) | `SteamJoinCallbackHandler.cs:84` -> `NGame.ReturnToMainMenu()` -> `CleanUp()` | 是 |
+| 主菜单继续存档失败 | `NMainMenu.cs:717` -> `CleanUp()` | 是 |
+| 主菜单放弃存档局 (无活动会话) | `NMainMenu.AbandonRun()` / `NMultiplayerSubmenu.TryAbandonMultiplayerRun()` | 不经过 —— 但此时 `State == null`, `CleanUp` 本身首行就 return; 无会话即无内存覆盖 |
+
+关键补充: 覆盖只可能在 `State != null` 期间存在. 覆盖由接收端 apply 产生, 而 apply
+只发生在 `Launch()` 释放缓冲之后, `Launch()` 必然晚于 `InitializeShared`
+(`RunManager.cs:466-469` 里 `State == null` 会直接抛). 所以不存在"覆盖还活着但
+CleanUp 因 `State == null` 提前返回"的窗口.
+**结论: 恢复路径覆盖全部结束方式, `RunManagerCleanUpPatch.cs` 注释的声明成立.**
+
+### 另需确认 #2 - 与 BaseLib 后置补丁的顺序无关性  [已验证: 无关]
+
+同一方法 `RunManager.InitializeShared` 上有两个 postfix: 本 mod 的 (发送快照) 与
+BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
+(`CustomMessagePatches.cs:12-18`, 注册 `CustomMessageWrapper` 处理器).
+两者顺序由 Harmony 补丁时序决定, 不确定 —— 但无关:
+
+1. 发送端只需要三件东西, 全部在**开机期**就绪, 与补丁顺序无关:
+   - `CustomMessageWrapper.Initialize()` 填充 `CustomMessageToId`
+     (`Abstracts/CustomMessage.cs:38-51`), 由 `PostModInitPatch.EarlyPostInit` 调用
+     (`Patches/PostModInitPatch.cs:32-65`, 挂在 `LocManager.Initialize` 前缀);
+   - `MessageTypes.Initialize()` 建类型缓存, 且 BaseLib 的 `AdjustCustomMessageKeys`
+     后置写入 wrapper id (`CustomMessagePatches.cs:29-86`), 由
+     `OneTimeInitialization.ExecuteEssential` 调用 (`OneTimeInitialization.cs:84`);
+   - `NetService` 在 `InitializeShared` **第 2 条语句**赋值 (`RunManager.cs:470`),
+     任何 postfix 都晚于它.
+2. 投递不发生在 `InitializeShared` 里. `NetMessageBus` 只在 `Update()` 泵时投递
+   (接收端 buffering=true 时先入 `_bufferedMessages`), 主机端也不发给自己.
+   真正投递要等 `NRun._Process` -> `NetService.Update()` (`NRun.cs:199-202`),
+   而 `NRun` 在 `NGame.cs:1187` 由 `Launch()` **之后**创建. 所以"BaseLib 注册
+   handler"只要早于投递即可 —— 它在 `InitializeShared` 内, 必然早于投递.
+3. 顺带核实主机广播门: `NetHostGameService.SendMessage<T>(T)` 只发给
+   `readyForBroadcasting == true` 的 peer (`NetHostGameService.cs:114-130`).
+   该标志由 `StartRunLobby.cs:272` / `LoadRunLobby.cs:204` / `RunLobby.cs:118`
+   在大厅握手完成时置位, 都早于 run 启动. 所以 `InitializeShared` 时全部 peer 已就绪.
+
+**结论: 顺序论证成立, 且由源码而非推理确认.**
+
+### 构建
+
+`dotnet-env.py "G:/omp works/sts2-mpconfigsync/mod" build MpConfigSync.csproj -c Debug`
+-> `MpConfigSync.dll` + `PCK packed`, `0 个警告 / 0 个错误`.
+
+### 本次新增的已知限制 (记录, 不在本次范围)
+
+- **重连 (rejoin) 的对端拿不到快照.** 主机侧重连走
+  `RunLobby.HandleClientRejoinRequestMessage` -> `GetRejoinMessage()`
+  (`RunManager.cs:1745-1752`), 不重跑 `InitializeShared`, 所以本 mod 的 postfix
+  不触发; 重连客户端自己走 `SetUpSavedMultiplayer` -> `InitializeShared`
+  (`RunManager.cs:383-392`), postfix 虽执行但 `net.Type != Host` 早退, 不会误发.
+  结果: 重连端本局用本地配置. 修法可选 (重连响应里捎带快照, 或主机监听
+  `PlayerRejoined` 事件后单发), 需先与"会话级 + 不落盘"的设计约束对齐, 未决.
+- 缺陷 #3 已文档化, 但"双端联机真实 apply 路径"仍未实机验证 (与 Session 2 同).

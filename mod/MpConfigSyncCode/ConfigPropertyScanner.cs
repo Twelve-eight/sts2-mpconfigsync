@@ -32,11 +32,42 @@ internal static class ConfigPropertyScanner
 
     internal static List<PropertyInfo> Scan(Type configType)
     {
-        return configType
-            .GetProperties(BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)
-            .Where(p => p.CanRead && p.CanWrite)
-            .Where(p => p.GetCustomAttribute<ConfigIgnoreAttribute>() == null)
-            .ToList();
+        // Exact mirror of BaseLib's ModConfig.CheckConfigProperties
+        // (BaseLib/Config/ModConfig.cs:143-153):
+        //     foreach (var property in configType.GetProperties())
+        //     {
+        //         if (property.GetCustomAttribute<ConfigIgnoreAttribute>() != null) continue;
+        //         if (!property.CanRead || !property.CanWrite) continue;
+        //         if (property.GetMethod?.IsStatic != true) continue;
+        //         ConfigProperties.Add(property);
+        //     }
+        //
+        // The previous version used
+        // GetProperties(Public | Static | FlattenHierarchy), which is NOT the
+        // same set. FlattenHierarchy additionally returns INHERITED public
+        // statics - properties BaseLib never puts in ConfigProperties and never
+        // persists to mod_configs/*.cfg. Syncing one would write a value the
+        // receiver does not save, so it would silently drift back on reload
+        // while looking successfully synced. Instance properties are dropped by
+        // both paths (BaseLib enumerates them only to reject them), so calling
+        // GetProperties() the way BaseLib does is the only way to guarantee "we
+        // sync exactly what the settings UI persists".
+        //
+        // BaseLib also warns for each rejected non-static property; we stay
+        // silent because the resulting set is identical and the warning would
+        // just be duplicate noise in the log.
+        var result = new List<PropertyInfo>();
+        foreach (PropertyInfo property in configType.GetProperties())
+        {
+            if (property.GetCustomAttribute<ConfigIgnoreAttribute>() != null)
+                continue;
+            if (!property.CanRead || !property.CanWrite)
+                continue;
+            if (property.GetMethod?.IsStatic != true)
+                continue;
+            result.Add(property);
+        }
+        return result;
     }
 
     /// <summary>ModId -> property map for one mod's config, resolved locally on the receiver.</summary>
