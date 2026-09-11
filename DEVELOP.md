@@ -2,7 +2,8 @@
 
 主机联机开局时自动下发 mod 配置,消除"两端配置文件不同导致的联机分歧".
 
-状态: 设计完成 (2026-09-10). 实现中.
+状态: v0.1.0 已实现并发布 (2026-09-10; workshop fileid 3799210379).
+实机双端验证未执行 - 见 4 节与 DEVLOG Session 1 的"未验证"清单.
 
 ## 1. 问题
 
@@ -102,8 +103,10 @@ public NetTransferMode Mode => NetTransferMode.Reliable;
 3. `TypeDescriptor.GetConverter(type).ConvertFromInvariantString(value)` -> 异常
    跳过 (类型不匹配保护).
 4. `property.SetValue(null, obj)`.
-5. 全部应用后: 每个受影响 config 调 `Changed()` + `ConfigReloaded()` (刷 UI 行)
-   + `Save()` (落盘, 原子).
+5. 全部应用后: 每个受影响 config 调 `Changed()` + `ConfigReloaded()` (刷 UI 行).
+   **不调 `Save()`** - 覆盖只存在于内存, 运行结束时由 RunManager.CleanUp postfix
+   把用户自己的值原样写回 (会话级语义, 用户配置文件永不被改写). 本条为
+   commit 772958af 的最终设计; 早期草稿写的"落盘"已废弃.
 
 ### 范围
 
@@ -115,8 +118,10 @@ v1 同步: 所有注册配置的全部可同步属性. 潜在的本地偏好 (�
 - 构建 + 部署 (dotnet build -> mods/).
 - 单机冒烟: 游戏启动, mod 加载日志无错, 配置界面出现 MpConfigSync 条目.
 - 联机冒烟: 两端 (真实 Steam 联机) 开一局, host 改一个配置值 (如 Relics 档位),
-  client 端 mod_configs/<mod>.cfg 落盘值应变成 host 值; 控制台/日志确认消息收发.
-  (需要用户实机配合.)
+  client 端日志应出现 `Config sync applied: N entries` 且不再报 StateDivergence.
+  观察点是**会话内行为**, 不是配置文件内容: 本 mod 不写盘 (见 3.5 节),
+  client 的 cfg 文件保持不变是预期结果. (需要用户实机配合; 截至 2026-09-12 未执行 -
+  2026-09-10 那次事故只有一端装了本 mod, 接收路径从未在真实对端跑过.)
 
 ## 5. 风险
 
@@ -147,9 +152,14 @@ v1 同步: 所有注册配置的全部可同步属性. 潜在的本地偏好 (�
 
 - 同步范围: 全量 (所有 ModConfigRegistry.GetAll() 配置的全部可同步属性). 简单,
   正确, 覆盖未来新增键.
-- 应用 = SetValue(null,v) + Changed()/ConfigReloaded() (刷 UI) + Save() (落盘 ->
-  启动期键下次启动对齐; 本局内 run 生成前的键即时生效).
+- 应用 = SetValue(null,v) + Changed()/ConfigReloaded() (刷 UI). 不落盘; 运行结束
+  时 CleanUp postfix 恢复用户原值.
 - 时序: InitializeShared 先于 GenerateRooms/InitializeNewRun 的任何内容生成 ->
-  池构成键在本局就已对齐; 启动期键通过落盘在下局前对齐. 双保险.
+  池构成键在本局就已对齐.
+- **已知缺口**: 启动期读取的键 (Spire1 PureSts1Pools / DeterministicPoolOrder,
+  IgnoreMpModDifferences 的挂载分支) 在收到同步消息时已被消费, 内存 SetValue 对
+  它们无效; 而会话级设计又移除了早期"落盘使下局对齐"的兜底, 因此这些键在联机中
+  永不生效. 需要在两案之间明确取舍: (a) 接受并在文档声明, 或 (b) 为这批键开一个
+  显式落盘白名单. 未决.
 - 客户端回发确认 (v1 不做): 失配检测靠引擎现有 ChecksumTracker - 若配置仍不同
   导致状态差, 引擎自己会报 StateDivergence, 我们不需要重复造.

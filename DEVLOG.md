@@ -54,3 +54,20 @@
   效但无害 (无 handler 只是 host 发出的消息被静默丢).
 - 不同步: BaseLib 自身 BaseLibConfig (音量/日志), Spire1 character.txt.
   v1 策略 = 全量同步其余所有注册配置 (含死开关), 简单正确.
+## Session 2 - 2026-09-12 (文档对齐 + 侦察)
+
+### 文档漂移修正
+DEVELOP.md 有三处描述的是已被 commit 772958af 取代的设计, 已改:
+1. 第 5 行状态行: "设计完成, 实现中" -> v0.1.0 已实现并发布 (fileid 3799210379).
+2. 3.5 节应用步骤: 删掉 "Save() (落盘, 原子)", 改为明确声明不落盘 + CleanUp 恢复.
+3. 第 4 节联机冒烟的观察点: 原文写 "client 端 cfg 落盘值应变成 host 值", 在会话级
+   设计下不可能发生; 改为观察日志的 "Config sync applied: N entries" 与不再出现
+   StateDivergence.
+4. 第 7 节修订: 新增"已知缺口"条目 - 启动期读取的键 (PureSts1Pools /
+   DeterministicPoolOrder / IgnoreMpModDifferences 挂载分支) 在收到消息时已被消费,
+   内存 SetValue 无效, 而会话级设计移除了落盘兜底, 所以这些键在联机中永不生效.
+   需要明确取舍 (接受并声明 / 开落盘白名单), 未决.
+
+### 未做的验证 (保持未验证状态)
+真实双端联机的接收路径仍未执行过. 2026-09-10 那次事故只有一端装了本 mod, 对端把
+消息静默丢弃, 因此 apply 路径从未在真实对端运行. 本次没有第二个客户端, 无法补齐.
