@@ -3,7 +3,7 @@
   "name": "MpConfigSync",
   "author": "omp",
   "description": "Host automatically pushes mod config values to all peers at multiplayer run start, preventing state divergence from mismatched local config files.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "min_game_version": "0.111.0",
   "has_pck": true,
   "has_dll": true,

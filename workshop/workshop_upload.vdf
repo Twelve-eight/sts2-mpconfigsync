@@ -55,5 +55,6 @@
 [/list]
 
 [i]The Workshop BaseLib often lags behind the official GitHub. If BaseLib errors after a game update, grab the latest release from GitHub (link above), unzip into the mods folder, and unsubscribe from the Workshop copy to avoid double-loading.[/i]"
+	"changenote"		"v0.1.1: sync protocol rework (2026-09-12 review) - host pushes the config snapshot from the lobbies and on rejoin BEFORE begin-run traffic (reliable ordered channel), so it applies before the first deterministic consumer; receiver authenticates the sender as the transport-level host (clients only; hosts/SP reject); touched cfg files are frozen read-only during the session and restored byte-exact at cleanup (crash-safe, no preference pollution); snapshots are fully validated before atomic apply, with wire-size bounds."
 	"publishedfileid"		"3799210379"
 }
