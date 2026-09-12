@@ -258,7 +258,7 @@ internal static class ConfigSyncApplier
         {
             mods.Add(entry.ModId);
         }
-        string? dir = ModConfigsDir();
+        string? dir = ModConfigsDir(mods);
         if (dir == null)
         {
             return;
@@ -303,24 +303,34 @@ internal static class ConfigSyncApplier
     }
 
     /// <summary>
-    /// Same location BaseLib uses (user_data_dir/mod_configs). Resolved through
-    /// a registered config's own file path when available, else the Godot user
-    /// dir. Null when nothing registered (nothing to protect).
+    /// Same location BaseLib writes mod cfgs (user_data_dir/mod_configs).
+    /// Resolved from a registered config's own BaseLib file path
+    /// (ModConfig._path) so no Godot API is touched on this path - the probe
+    /// can exercise the full freeze/restore flow outside the engine, and the
+    /// game-side behavior is identical (BaseLib itself computes _path from
+    /// OS.GetUserDataDir()). Null when nothing resolvable (nothing to protect).
     /// </summary>
-    private static string? ModConfigsDir()
+    private static string? ModConfigsDir(IEnumerable<string> modIds)
     {
-        // ModConfig exposes the config directory via its storage layer; use the
-        // engine's user data dir + the well-known folder name. Godot statics are
-        // safe here: this code only ever runs inside the game process.
-        try
+        var pathField = typeof(ModConfig).GetField("_path",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        foreach (string modId in modIds)
         {
-            string dir = Path.Combine(Godot.OS.GetUserDataDir(), "mod_configs");
-            return Directory.Exists(dir) ? dir : null;
+            ModConfig? config = ModConfigRegistry.Get(modId);
+            if (config == null || pathField == null)
+            {
+                continue;
+            }
+            string? path = pathField.GetValue(config) as string;
+            if (!string.IsNullOrEmpty(path))
+            {
+                string? dir = Path.GetDirectoryName(path);
+                if (dir != null && Directory.Exists(dir))
+                {
+                    return dir;
+                }
+            }
         }
-        catch (Exception e)
-        {
-            MainFile.Log.Error($"Config sync: cannot resolve mod_configs dir: {e.Message}");
-            return null;
-        }
+        return null;
     }
 }
