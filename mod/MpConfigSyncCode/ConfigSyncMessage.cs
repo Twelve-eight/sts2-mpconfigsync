@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 
 using BaseLib.Abstracts;
-using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
-using MegaCrit.Sts2.Core.Multiplayer.Transport;
 
 namespace MpConfigSync.MpConfigSyncCode;
 
@@ -15,31 +13,39 @@ namespace MpConfigSync.MpConfigSyncCode;
 /// (bool/int/float/double/string/enum/Color) round-trips through the TypeDescriptor
 /// converters on both ends.
 ///
-/// Sent by the host once per run session (RunManager.InitializeShared postfix) via
-/// CustomMessageWrapper.Send. ShouldBroadcast=false: host-originated, no relay needed.
+/// DELIVERY (MCS-1, rewritten 2026-09-12): <see cref="ShouldBuffer"/> is now FALSE.
+/// The primary send happens in the LOBBY (StartRunLobby.BeginRunForAllPlayers /
+/// LoadRunLobby.TryBeginRunForAllPlayers prefixes) and on rejoin
+/// (RunLobby.HandleClientRejoinRequestMessage prefix) - before the engine transmits
+/// its begin-run / rejoin-response traffic on the same reliable ordered channel, so
+/// the client applies the config BEFORE its own run initialisation reads it. The old
+/// reasoning ("buffer to Launch, deliver mid- InitialiseShared would be worse")
+/// confused "does not race the synchronizers" with "arrives before the first
+/// consumer": buffered application at Launch is AFTER Populate/GenerateRooms/
+/// OnRunCreated/Qurious prefix generation and can never satisfy MCS-1
+/// (astra-advice 2026-09-12). The RunManager.InitializeShared postfix push remains
+/// as a backstop re-assertion only.
 ///
-/// <para>
-/// Buffering: <c>ShouldBuffer</c> is deliberately NOT overridden, so it keeps
-/// <see cref="ICustomMessage"/>'s default of <c>true</c>. This is the intended
-/// behaviour, not an oversight. The host sends the snapshot from the
-/// RunManager.InitializeShared postfix, which runs after the run lobby has
-/// already enabled buffering (<c>StartRunLobby.cs:498</c> /
-/// <c>LoadRunLobby.cs:320</c>), and buffered messages are released by
-/// <c>RunManager.Launch()</c> (<c>RunManager.cs:711-717</c>,
-/// <c>SetBufferMessages(false)</c>). So the receiver applies the snapshot at
-/// launch, never during <c>InitializeShared</c> itself - which is exactly what we
-/// want, because it cannot race the synchronizers that <c>InitializeShared</c> is
-/// still building. Overriding <c>ShouldBuffer</c> to <c>false</c> would deliver
-/// the snapshot mid-initialisation instead and is strictly worse.
-/// </para>
+/// Bounds (MCS-5): Deserialize enforces entry/string caps so a hostile or corrupt
+/// packet cannot force huge allocations; Apply validates the whole snapshot before
+/// committing any value.
 /// </summary>
 public class ConfigSyncMessage : ICustomMessage
 {
+    /// <summary>Maximum entries per snapshot. Far above any real mod config surface.</summary>
+    public const int MaxEntries = 512;
+
+    /// <summary>Maximum characters per string field. Mod ids / property names / values are all short.</summary>
+    public const int MaxStringLength = 256;
+
     public List<string> ModIds = new();
     public List<string> PropertyNames = new();
     public List<string> Values = new();
 
+    /// <summary>Host-originated, no relay; deliver on receipt in every phase.</summary>
     public bool ShouldBroadcast => false;
+
+    public bool ShouldBuffer => false;
 
     public void Serialize(PacketWriter writer)
     {
@@ -56,15 +62,32 @@ public class ConfigSyncMessage : ICustomMessage
     public void Deserialize(PacketReader reader)
     {
         int count = reader.ReadInt(32);
-        ModIds = new List<string>(count);
-        PropertyNames = new List<string>(count);
-        Values = new List<string>(count);
+        // MCS-5: reject absurd counts outright instead of pre-sizing from
+        // attacker-chosen values (the old code allocated List(count) with
+        // count = int.MinValue / 10000 before any data check).
+        if (count < 0 || count > MaxEntries)
+        {
+            throw new IndexOutOfRangeException($"config snapshot entry count {count} outside [0,{MaxEntries}]");
+        }
+        var modIds = new List<string>(count);
+        var propertyNames = new List<string>(count);
+        var values = new List<string>(count);
         for (int i = 0; i < count; i++)
         {
-            ModIds.Add(reader.ReadString());
-            PropertyNames.Add(reader.ReadString());
-            Values.Add(reader.ReadString());
+            string modId = reader.ReadString();
+            string propertyName = reader.ReadString();
+            string value = reader.ReadString();
+            if (modId.Length > MaxStringLength || propertyName.Length > MaxStringLength || value.Length > MaxStringLength)
+            {
+                throw new IndexOutOfRangeException($"config snapshot string field exceeds {MaxStringLength} chars");
+            }
+            modIds.Add(modId);
+            propertyNames.Add(propertyName);
+            values.Add(value);
         }
+        ModIds = modIds;
+        PropertyNames = propertyNames;
+        Values = values;
     }
 
     public void HandleMessage(ulong senderId)

@@ -196,3 +196,53 @@ BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
   结果: 重连端本局用本地配置. 修法可选 (重连响应里捎带快照, 或主机监听
   `PlayerRejoined` 事件后单发), 需先与"会话级 + 不落盘"的设计约束对齐, 未决.
 - 缺陷 #3 已文档化, 但"双端联机真实 apply 路径"仍未实机验证 (与 Session 2 同).
+
+---
+
+## 2026-09-12 (夜) astra-advice MCS-1/2/3/4/5 修复 (主会话单线)
+
+### 架构改动
+
+- **推送时点 (MCS-1)**: 新增 `Patches/LobbySnapshotPushPatches.cs` —— 主机在
+  `StartRunLobby.BeginRunForAllPlayers` (新局) / `LoadRunLobby.TryBeginRunForAllPlayers`
+  (读档建房) / `RunLobby.HandleClientRejoinRequestMessage` (重连, MCS-4) 三个
+  **prefix** 推送快照。屏障依据: 引擎对这些方法体里的 begin-run/rejoin-response
+  消息与本 mod 的快照走**同一条可靠有序通道**, prefix 发送先于 begin 消息到达,
+  客户端在自身 SetUpNewMultiplayer → InitializeShared → Populate 之前应用配置。
+  `InitializeShared` postfix 保留为兜底重申 (对漏收 lobby 包的客户端在 Launch 前
+  收敛; 单靠它不构成 MCS-1, 注释如实改写)。`ConfigSyncMessage.ShouldBuffer=false`
+  (原注释的"缓冲到 Launch 更安全"混淆了"不与 synchronizer 竞争"与"早于首个消费者")。
+- **接收端鉴权 (MCS-2)**: `MpNetSession.AuthorizeSnapshot` —— 必须有活跃已连接
+  service, 本机角色为 Client, 且 senderId == `NetClientGameService.HostNetId`
+  (与引擎握手 `HandshakeMessageReceived` 同款传输层身份判据, 载荷可伪造的
+  sender 字段不参与)。Host/单机/回放一律拒绝 (ShouldBroadcast=false 只是不转发,
+  不阻止 host 收到 client 消息——旧代码把这当"收不到")。
+- **大厅期 service 捕获**: `Patches/LobbySnapshotBarrierPatches.cs` 对三个 lobby
+  构造器 postfix 记录 `INetGameService` (RunManager.NetService 在 InitializeRunLobby
+  才赋值, 大厅期为 null; lobby 与 run 共享同一 service 对象)。
+- **文件写保护 (MCS-3)**: Apply 路径不再触发 `Changed()` (那是"用户编辑"信号,
+  会驱动 Qurious/BaseLib 的防抖/关页/退出保存); 只发 `ConfigReloaded()` 刷新 UI。
+  纵深防御: 首次应用前把触及 mod 的 `mod_configs/*.cfg` 快照字节 + 设只读,
+  任何第三方订阅者中途落盘都会失败; CleanUp 时解除只读并**逐字节还原**。
+  中途崩溃也不再污染用户文件。
+- **事务化 + 边界 (MCS-5)**: Deserialize 拒绝条目数 ∉[0,512] 与超长字符串
+  (不再按攻击者给的 count 预分配); Apply 先全量 resolve+convert, 任一**已存在
+  属性**转换失败 → 整包拒绝 (不留半应用状态); 未知 mod/属性 = 版本偏差, 容忍并
+  记录 (本地无该 mod 即无消费者); setter 抛错逐条记录不中断开局。
+
+### 验证
+
+- 隔离构建 0 警告 0 错误, 已部署实机。
+- 引擎事实全部对 dllsrc 复核: 闸门顺序/BeginRunForAllPlayers(:441)/
+  TryBeginRunForAllPlayers(:291)/RunLobby 重连 handler(:103 发送 rejoin response)/
+  HostNetId(NetClientGameService:31)。
+- **未验证边界 (需真实双端)**: ①通道有序性在实机 Steam 会话中的表现
+  (设计上 prefix→begin 顺序成立, 未实测); ②设置页开着时第三方订阅者写只读
+  文件的实际行为 (预期失败+日志); ③重连后首状态校验; ④CustomMessageWrapper
+  在 lobby 阶段发送是否需要额外初始化 (兜底路径已覆盖失败情形)。
+  按审查交付门, 未跑双端前不称 MP safe。
+
+### 保留
+
+- ConfigPropertyScanner / CleanUp 恢复路径 / InitializeShared 与 BaseLib 的
+  注册顺序 (审查确认无问题) 未动。
