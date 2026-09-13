@@ -1,6 +1,6 @@
 ## 第二轮复审 (2026-09-13)
 
-本轮当前 `sync-probe-v2` 通过其完整隔离断言: 鉴权拒绝 host/SP/断开/伪造 sender, 合法 host 应用, 不触发 `Changed`, 文件只读保护, 原子拒绝非法值, 未知键容忍, wire count 限制, CleanUp 内存/文件恢复. 当前隔离构建 exit 0, 0 warning/0 error. 这只证明 applier/message fixture, 不证明双端入口.
+第二轮 `sync-probe-v2` 返回 PROBE OK: 拒绝 host 接收端,断开连接,无法鉴权的 client service 和不匹配 sender; 合法 host 应用; 不触发 Changed; 已有 fixture 文件的只读保护; 转换失败时整包不应用; wire count 限制; 直接调用 RestoreLocalSettings 后正常恢复. SP/replay 拒绝由源码分支支持, 不是本探针分别运行的场景. 隔离产品构建 exit 0, 0 warning/0 error. 探针没有运行生产补丁扫描器,真正的 CleanUp,消息总线或双端入口.
 
 ### P1 仍未闭合: lobby 发送早于 CustomMessageWrapper handler 注册
 
@@ -8,9 +8,15 @@
 
 结论: Reliable/in-order 只能保证已经进入总线的消息顺序, 不能保证接收 handler 已经存在. 客户端若在 lobby 阶段收到该包, 快照会被丢弃; 后面的 InitializeShared backstop 又晚于首个 `Populate/GenerateRooms` 消费者. 因此新局, 读档建房, 加入和 rejoin 仍不能称满足用户的"任何进入房间"契约. 建议在确实存在的 lobby transport handler 生命周期注册并与 BaseLib 后续注册去重, 或改用已注册的 lobby message path; 不要只把 `ShouldBuffer` 改回 true.
 
-### P1 仍未解释: live log 与当前 DLL 的 patch 结果矛盾
+### P1 根因已定位: 生产扫描器误排除所有静态补丁类
 
-当前 live `godot.log:922` 仍是 `Harmony: 0 method(s) patched across 23 type(s), 0 patch(es) failed`. 对当前构建 DLL 和部署 DLL 分别运行 `CreateClassProcessor(type).Patch()` 的探针, 8 个 patch class 全部可安装: 两个 begin, 三个 ctor capture, rejoin, cleanup, InitializeShared. 证据 `../astra-advice-evidence/2026-09-13/mcs-harmony-probe.json`; 当前构建 hash `0cf9051bfca2533551ee104ff69e17bcc514e527deda301af25a6be078fec96d`, 部署 hash `5a2fecc745fe255d33b9e41800a15d4c136c2cc771435666eb683030d934cedf`. 必须追实际 loader 使用的 assembly/初始化状态, 在 live log 中打印每类安装计数和目标 MethodInfo 后才能判 active.
+复盘更正: 旧快照 `MainFile.cs:63-65` 先跳过 `type.IsAbstract`, 所有八个 Harmony patch class 都是 C# static class, 在反射中同时是 abstract/sealed, 因而没有进入 ClassProcessor. 这足以解释当时 `godot.log:922` 的 `Harmony: 0 method(s) patched across 23 type(s), 0 patch class(es) failed`. 原 probe 在移除该过滤后直接安装八类成功, 只证明目标可安装, 不是生产入口成功. 上次汇报的 "loader/程序集矛盾未解释" 判断错误, 不应沿该方向继续扩大调查.
+
+证据: `.tmp/astra-rereview-20260913-1789260118248/sts2-mpconfigsync/mod/MpConfigSyncCode/MainFile.cs:54-91` (相对工作区根目录), 同目录 `mcs-harmony-probe/Program.cs:18-34`, 以及 `../astra-advice-evidence/2026-09-13/mcs-harmony-probe-local.json` 和 `mcs-harmony-probe-deployed.json`. 复盘时新源码 `MainFile.cs:63-68` 已移除 `IsAbstract` 过滤并注明根因; 这是源状态观察, 本次未重新构建,部署或启动游戏, 不宣称新运行已验证.
+
+### 验证口径更正: 预校验不是完整事务, 只读 fixture 不是所有文件保护
+
+旧快照 `ConfigSyncApplier.cs:125-140` 对 setter 异常记录后继续提交, 没有整体回滚; `:250-303` 对文件不存在/保护失败继续, 恢复还需重新处理文件属性. 本轮 probe 没有注入 setter 失败,保护失败,原本只读,缺失配置或进程崩溃. 因此 PROBE OK 只支持已执行的正常路径和转换失败路径, 不能称完整原子性/永久偏好隔离已闭合. 下一轮以新源码重新审查这些边界, 不把旧快照继续写成当前故障.
 
 ### 仍需真实验证
 
