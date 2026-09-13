@@ -246,3 +246,17 @@ BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
 
 - ConfigPropertyScanner / CleanUp 恢复路径 / InitializeShared 与 BaseLib 的
   注册顺序 (审查确认无问题) 未动。
+
+---
+
+## 附: 会话输入与工作顺序 (2026-09-12~13, 全量见 docs/session-log-2026-09-12-13.md)
+
+与本仓库直接相关的用户输入序列:
+1. (astra-advice 项 3/4, 用户原始需求「配置下发覆盖任何进入房间,只应用于本局」)
+   → 大厅屏障+鉴权+文件冻结+事务 (4da0efb)。
+2. GPT6-Astra 二轮 live log 证据: 「0 method(s) patched」与探针 8/8 矛盾 →
+   **静态类 IsAbstract 过滤跳过全部补丁类** (所有 MCS 补丁从未挂载) — 修复 (506988c)。
+3. 同复审: 大厅推送被 NetMessageBus 丢弃 (handler 未注册) → lobby 早注册 + InitializeShared
+   兜底反注册 (引擎不去重) (506988c)。
+教训要点: L5 静态类 IsAbstract / L9 消息总线丢弃与注册去重 / L3 "0 错误"可以是 bug 本身。
+详见 docs/session-log-2026-09-12-13.md 第二节。
