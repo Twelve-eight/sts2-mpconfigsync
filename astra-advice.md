@@ -1,10 +1,28 @@
-## 第二轮复审 (2026-09-13)
+## 第三轮复审 (2026-09-14)
 
-第二轮 `sync-probe-v2` 返回 PROBE OK: 拒绝 host 接收端,断开连接,无法鉴权的 client service 和不匹配 sender; 合法 host 应用; 不触发 Changed; 已有 fixture 文件的只读保护; 转换失败时整包不应用; wire count 限制; 直接调用 RestoreLocalSettings 后正常恢复. SP/replay 拒绝由源码分支支持, 不是本探针分别运行的场景. 隔离产品构建 exit 0, 0 warning/0 error. 探针没有运行生产补丁扫描器,真正的 CleanUp,消息总线或双端入口.
+当前隔离构建 exit 0, 0 warning/0 error. 对当前构建 DLL 调用了产品私有 `MainFile.ApplyPatches`, 不是绕过生产入口的逐类 probe: 23 个类型中识别 8 个补丁类, 安装 8 个引擎方法, 0 个补丁类失败. 证据: `../astra-advice-evidence/2026-09-14/build-results.json`, `mcs-production-apply.json`. 隔离夹具只替换 `sts2.dll` 的日志输出以避开 Godot native 调用, 没有启动 mod initializer, `RunManager`, lobby, transport 或 UI.
 
-### P1 仍未闭合: lobby 发送早于 CustomMessageWrapper handler 注册
+### P1 入口挂载已获隔离证明, 不等于实机加载闭合
 
-当前源 `Patches/LobbySnapshotPushPatches.cs:40-91` 从 `StartRunLobby.BeginRunForAllPlayers`, `LoadRunLobby.TryBeginRunForAllPlayers`, `RunLobby.HandleClientRejoinRequestMessage` 的 prefix 发送快照, `ConfigSyncMessage.ShouldBuffer=false`. 当前 BaseLib `BaseLibRunManagerPatches.cs:10-23` 只在 `RunManager.InitializeShared` postfix 调 `CustomMessageWrapper.Register`; 当前引擎 `NetMessageBus.SendMessageToAllHandlers` 在 `:78-105` 对无 handler 直接报错并 return, 不保留非 buffered 消息. `LobbySnapshotBarrierPatches` 只保存 service, 没有注册 wrapper handler.
+当前生产扫描器 `MainFile.cs:54-95` 已移除 `IsAbstract` 过滤并逐类隔离失败. 当前构建哈希 `ba03e9582bf65b07351b9f14ede4fe5772cfdd0fec83d0db99883769147328b8` 的真实私有 `ApplyPatches` 夹具结果为 8 类/8 方法/0 失败. 这关闭了上一轮生产入口可能跳过静态类的源码级疑点; 没有新游戏日志, 不能声称部署 DLL 已被实际加载.
+
+### P1 lobby 时序仍是 SOURCE, 新早注册尚未覆盖真实 packet
+
+当前 `LobbySnapshotBarrierPatches.cs:17-41` 的三个构造器 postfix 都调用 `MpNetSession.ObserveService`; `MpNetSession.cs:47-91` 只对每个 service 首次早注册 wrapper, `InitializeShared` backstop 再反注册. 引擎反编译 `NetMessageBus.cs:78-89,127-159` 仍证明无 handler 的非 buffered 消息直接丢弃, handler 注册不去重. `LobbySnapshotPushPatches.cs:70-91` 覆盖普通新局, 读档建房和 rejoin 的 host prefix, 源码顺序也分别早于 begin/rejoin send.
+
+但是本轮 registration fixture 未能接入真实 `INetGameService` 派发实现, 没有证明早注册发生在每个真实客户端 join/rejoin 建 lobby 之前, 也没有证明 backstop 反注册后 BaseLib handler 仍唯一. 因此生产 scanner 已挂载与所有进入路径已同步必须分开. 未运行双端.
+
+### P1 会话事务边界仍开放
+
+`ConfigSyncApplier.cs:119-166` 在 `ProtectConfigFiles` 失败后仍继续 setter commit; setter 失败后保留此前已提交值并继续. `:169-225` 先清 `RestoreSnapshot`, `:287-303` 对 restore 失败只记录并随后清 `FileBackups`. `RunManagerCleanUpPatch.cs:16-29` 只在真实 `CleanUp` postfix 调恢复, 本轮未注入 setter/file/中断故障. `MpNetSession.CurrentService` 与 `EarlyRegistered` 也没有清理路径. 正常 CleanUp 可恢复不能升级为崩溃安全或全局事务.
+
+### 第三轮未执行
+
+没有运行真实游戏 initializer, 当前部署 DLL 新日志, 双端新局/读档/加入/rejoin, 延迟/丢包, 设置页防抖保存, 中途终止. `sync-probe-v2` 的既有 PROBE OK 仍只覆盖它实际执行的路径.
+
+### 历史第二轮结论 (已被本轮隔离证据修正)
+旧第二轮结论曾认为 lobby handler 尚未注册. 本轮当前 DLL 的真实私有 `MainFile.ApplyPatches` 已安装全部 8 类/8 方法, 当前源码的 constructor postfix 也执行早注册逻辑. 因此该结论不应再写成当前挂载事实.
+当前仍未闭合的是**真实 transport 和会话时序**, 不是生产扫描器未挂载: 没有双端验证构造器发生时刻, 快照到达/应用时刻, begin-run 前首个消费者, 以及 BaseLib 后续注册/早注册反注册后的 handler 数量. 引擎无 handler 丢弃和不去重仍是有效约束.
 
 结论: Reliable/in-order 只能保证已经进入总线的消息顺序, 不能保证接收 handler 已经存在. 客户端若在 lobby 阶段收到该包, 快照会被丢弃; 后面的 InitializeShared backstop 又晚于首个 `Populate/GenerateRooms` 消费者. 因此新局, 读档建房, 加入和 rejoin 仍不能称满足用户的"任何进入房间"契约. 建议在确实存在的 lobby transport handler 生命周期注册并与 BaseLib 后续注册去重, 或改用已注册的 lobby message path; 不要只把 `ShouldBuffer` 改回 true.
 

@@ -259,4 +259,37 @@ BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
 3. 同复审: 大厅推送被 NetMessageBus 丢弃 (handler 未注册) → lobby 早注册 + InitializeShared
    兜底反注册 (引擎不去重) (506988c)。
 教训要点: L5 静态类 IsAbstract / L9 消息总线丢弃与注册去重 / L3 "0 错误"可以是 bug 本身。
+
+## 2026-09-14 astra 第三轮审查交接记录
+
+### 审查证据截点
+- 隔离构建工作区: `G:\\omp works\\.tmp\\astra-review-20260914-1789319234062`.
+- 正式证据: `G:\\omp works\\astra-advice-evidence\\2026-09-14\\`.
+- 当前构建 `MpConfigSync.dll` SHA256: `ba03e9582bf65b07351b9f14ede4fe5772cfdd0fec83d0db99883769147328b8`.
+- 产品私有 `MainFile.ApplyPatches` 隔离调用结果: 23 types, 8 patch classes, 8 engine methods, 0 failed classes.
+- `sync-probe-v2` 当前隔离输出: 19 个 PASS 行, 覆盖鉴权, 转换失败整包拒绝, count 限制, cfg 只读冻结和直接恢复. 未覆盖真实 CleanUp, setter/file 故障回滚, 中断和双端 transport.
+
+### 当前仍未闭合
+- lobby constructor 早注册源码存在且生产扫描器隔离安装成功, 但未运行真实 packet 派发, 新局/读档/加入/rejoin 首消费者时序和 BaseLib handler 反注册后的真实数量.
+- setter 失败, 文件保护或恢复失败, 进程终止时的整体事务安全仍未证明.
+
+### 交接恢复动作
+- 本轮没有产品源码修改, 没有操作游戏, 没有部署或 push.
+- 当前 `git status` 另外观察到 `mod/MpConfigSync/MpConfigSync.dll`, `.json`, `.pdb` 三个未跟踪生成物. 不清理, 不回滚, 不加入本轮文档提交; 归属需下一轮先确认.
+- 当前 advice 修改未提交. 下一轮先复核本 DEVLOG 与 `astra-advice-evidence/2026-09-14/handoff-state.json`, 再决定是否把 advice/DEVLOG 分开提交.
 详见 docs/session-log-2026-09-12-13.md 第二节。
+
+---
+
+## 2026-09-14 首次实机加载 + 破解版双开测试环境 (阶段 1-2 完成)
+
+- **MCS 首次在真实游戏里加载**: I: 副本 (Goldberg, v0.111.0) 与其克隆副本 B, 日志均为
+  `Harmony: 8 method(s) patched across 23 type(s), 0 patch class(es) failed` —— astra 第三轮
+  "生产扫描器已修复但未实机加载" 的缺口就此闭合 (实机挂载证据)。部署的是本仓重建版
+  (SHA256 879DF477…, 源码 = 当前 HEAD)。
+- 测试环境: A = `I:\Slay the Spire 2\` (Goldberg), B = `G:\omp works\sts2-test-client-B\`
+  (完整克隆, 独立 Goldberg 身份 TEST_B / local_steam_id 76561199520000001)。mod 集 = 51 个
+  真实会话镜像, 两副本逐字节一致。完整报告: `docs/mcs-cracked-mp-test-2026-09-14.md`。
+- 环境修复两处 (与 MCS 无关但记录): Mesugaki 换工坊 0.1.2; 测试副本 Perfect.json 补
+  ActsFromThePast 依赖 (加载顺序敏感的可选依赖, 加载器拓扑排序后 Perfect 初始化成功)。
+- 阶段 3 待执行: 双开大厅 → 配置下发/本局隔离/读档建房/rejoin 场景矩阵 (报告 §阶段 3)。
