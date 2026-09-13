@@ -293,3 +293,9 @@ BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
 - 环境修复两处 (与 MCS 无关但记录): Mesugaki 换工坊 0.1.2; 测试副本 Perfect.json 补
   ActsFromThePast 依赖 (加载顺序敏感的可选依赖, 加载器拓扑排序后 Perfect 初始化成功)。
 - 阶段 3 待执行: 双开大厅 → 配置下发/本局隔离/读档建房/rejoin 场景矩阵 (报告 §阶段 3)。
+
+## 2026-09-14 阶段 3 完成: 三条推送路径 + 恢复矩阵真实双端验证
+- Goldberg 双开 (A 主机 / B 客户端) 完整跑通: start-lobby begin、load-lobby begin、initialize-shared backstop 三条推送路径全部触发 (227 entries); 文件冻结拦截了客户端防抖保存 (BaseLib Access denied = 按设计); 断连场景下 13 个 cfg 逐一恢复到会话前字节; 0.5.7 同款 LastRunSeed 续档思路在 Qurious 侧真实读档局验证 (snapshot kept)。
+- 事故记录: QuickLink 回退在 GSE 下失败 (socket 重建后好友 lobby 信息不刷新 → 客户端自动重连未发生 → 黑屏遮罩残留) —— 环境限制判定, 与 MCS 无关; 详见 docs/mcs-cracked-mp-test-2026-09-14.md。
+- 进房根因: 破解包 GSE 的 steam_appid=2963800 与引擎硬编码 2868840 不符 → 好友过滤器丢弃一切好友; 改 2868840 后进房正常。account_steamid/listen_port 键位经 DLL 字面量邻域验证。
+- 待办移交: 接收端鉴权 (MCS-2)、事务边界 (MCS-3 加固)、真实 Steam 环境复测 rejoin。
