@@ -34,6 +34,10 @@ internal static class RunManagerInitializeSharedPatch
                 return;
             }
             LobbySnapshotPush.PushIfHost(net, "initialize-shared backstop");
+            // BaseLib registers CustomMessageWrapper on this service in ITS
+            // InitializeShared postfix; undo our lobby-phase registration so
+            // the handler is not installed twice (engine does not dedupe).
+            MpNetSession.UnregisterEarlyHandler(net);
         }
         catch (Exception e)
         {

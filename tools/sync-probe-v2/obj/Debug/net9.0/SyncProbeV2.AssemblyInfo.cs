@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SyncProbeV2")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a7a2d4db4a0d7b69cc2e76cf459c1a195bbe61d2")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+88fe6e0c81101d1b9db5e16a0ce1f3b444fad506")]
 [assembly: System.Reflection.AssemblyProductAttribute("SyncProbeV2")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SyncProbeV2")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

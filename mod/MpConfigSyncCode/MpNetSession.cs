@@ -32,12 +32,61 @@ internal static class MpNetSession
     /// <summary>Latest lobby/net service seen; the lobby and the run share the same object.</summary>
     internal static INetGameService? CurrentService { get; set; }
 
-    /// <summary>Called by the lobby constructor postfixes.</summary>
+    private static readonly System.Collections.Generic.HashSet<INetGameService> EarlyRegistered = new();
+
+    /// <summary>
+    /// Called by the lobby constructor postfixes. ALSO registers BaseLib's
+    /// CustomMessageWrapper handler on the service EARLY (second-round review,
+    /// 2026-09-13): BaseLib only registers it at RunManager.InitializeShared
+    /// postfix, and NetMessageBus DROPS messages whose type has no handler -
+    /// so lobby-time config pushes (the whole MCS-1 barrier) would be thrown
+    /// away. Our own registration is undone in the InitializeShared backstop
+    /// patch, because the engine does NOT dedupe handlers and BaseLib
+    /// registers the same handler again there.
+    /// </summary>
     internal static void ObserveService(INetGameService? service)
     {
-        if (service != null)
+        if (service == null)
         {
-            CurrentService = service;
+            return;
+        }
+        CurrentService = service;
+        if (EarlyRegistered.Add(service))
+        {
+            try
+            {
+                typeof(BaseLib.Abstracts.CustomMessageWrapper)
+                    .GetMethod("Register", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                    ?.Invoke(null, new object?[] { service });
+                MainFile.Log.Info("Config sync: CustomMessageWrapper registered early for the lobby phase");
+            }
+            catch (Exception e)
+            {
+                MainFile.Log.Error($"Config sync: early CustomMessageWrapper registration failed: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Undo the early registration once BaseLib's own InitializeShared postfix
+    /// has (or will) register the handler on this service, so exactly one
+    /// handler remains regardless of postfix order.
+    /// </summary>
+    internal static void UnregisterEarlyHandler(INetGameService? service)
+    {
+        if (service == null || !EarlyRegistered.Remove(service))
+        {
+            return;
+        }
+        try
+        {
+            typeof(BaseLib.Abstracts.CustomMessageWrapper)
+                .GetMethod("Unregister", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                ?.Invoke(null, new object?[] { service });
+        }
+        catch (Exception e)
+        {
+            MainFile.Log.Error($"Config sync: early CustomMessageWrapper unregister failed: {e.Message}");
         }
     }
 

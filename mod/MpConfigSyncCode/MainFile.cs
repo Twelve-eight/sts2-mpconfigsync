@@ -60,7 +60,12 @@ public partial class MainFile : Node
 
         foreach (Type type in assembly.GetTypes())
         {
-            if (type.IsAbstract || type.IsGenericTypeDefinition)
+            // NOTE: do NOT skip IsAbstract here - C# STATIC classes report
+            // IsAbstract=true, and every patch class in this mod is static.
+            // The old filter silently skipped ALL of them (live log:
+            // "0 method(s) patched across 23 type(s)"), leaving every MCS
+            // patch unmounted while reporting zero failures.
+            if (type.IsGenericTypeDefinition)
             {
                 continue;
             }
