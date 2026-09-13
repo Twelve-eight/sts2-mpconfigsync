@@ -1,3 +1,21 @@
+## 第二轮复审 (2026-09-13)
+
+本轮当前 `sync-probe-v2` 通过其完整隔离断言: 鉴权拒绝 host/SP/断开/伪造 sender, 合法 host 应用, 不触发 `Changed`, 文件只读保护, 原子拒绝非法值, 未知键容忍, wire count 限制, CleanUp 内存/文件恢复. 当前隔离构建 exit 0, 0 warning/0 error. 这只证明 applier/message fixture, 不证明双端入口.
+
+### P1 仍未闭合: lobby 发送早于 CustomMessageWrapper handler 注册
+
+当前源 `Patches/LobbySnapshotPushPatches.cs:40-91` 从 `StartRunLobby.BeginRunForAllPlayers`, `LoadRunLobby.TryBeginRunForAllPlayers`, `RunLobby.HandleClientRejoinRequestMessage` 的 prefix 发送快照, `ConfigSyncMessage.ShouldBuffer=false`. 当前 BaseLib `BaseLibRunManagerPatches.cs:10-23` 只在 `RunManager.InitializeShared` postfix 调 `CustomMessageWrapper.Register`; 当前引擎 `NetMessageBus.SendMessageToAllHandlers` 在 `:78-105` 对无 handler 直接报错并 return, 不保留非 buffered 消息. `LobbySnapshotBarrierPatches` 只保存 service, 没有注册 wrapper handler.
+
+结论: Reliable/in-order 只能保证已经进入总线的消息顺序, 不能保证接收 handler 已经存在. 客户端若在 lobby 阶段收到该包, 快照会被丢弃; 后面的 InitializeShared backstop 又晚于首个 `Populate/GenerateRooms` 消费者. 因此新局, 读档建房, 加入和 rejoin 仍不能称满足用户的"任何进入房间"契约. 建议在确实存在的 lobby transport handler 生命周期注册并与 BaseLib 后续注册去重, 或改用已注册的 lobby message path; 不要只把 `ShouldBuffer` 改回 true.
+
+### P1 仍未解释: live log 与当前 DLL 的 patch 结果矛盾
+
+当前 live `godot.log:922` 仍是 `Harmony: 0 method(s) patched across 23 type(s), 0 patch(es) failed`. 对当前构建 DLL 和部署 DLL 分别运行 `CreateClassProcessor(type).Patch()` 的探针, 8 个 patch class 全部可安装: 两个 begin, 三个 ctor capture, rejoin, cleanup, InitializeShared. 证据 `../astra-advice-evidence/2026-09-13/mcs-harmony-probe.json`; 当前构建 hash `0cf9051bfca2533551ee104ff69e17bcc514e527deda301af25a6be078fec96d`, 部署 hash `5a2fecc745fe255d33b9e41800a15d4c136c2cc771435666eb683030d934cedf`. 必须追实际 loader 使用的 assembly/初始化状态, 在 live log 中打印每类安装计数和目标 MethodInfo 后才能判 active.
+
+### 仍需真实验证
+
+未执行双端新局, 主机读档建房, 客户端加入, rejoin, 延迟/丢包, 设置页打开后防抖保存, 中途崩溃. `sync-probe-v2` 的 `PROBE OK` 不能升级成 MP safe.
+
 # Astra advice - MpConfigSync
 
 日期: 2026-09-12. 主会话单线. 审查目标不是 "能发一个包", 而是主机配置在所有确定性消费者之前生效, 只影响本会话, 并覆盖读档/重连.
