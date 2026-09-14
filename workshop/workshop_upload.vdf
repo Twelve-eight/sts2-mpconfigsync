@@ -22,9 +22,10 @@
 [h2]工作方式 / How it works[/h2]
 
 [list]
-[*]主机在联机开局瞬间(RunManager 会话建立)快照本机全部 mod 配置
-[*]通过 BaseLib 的自定义消息通道可靠推送给所有队友
-[*]队友端逐条校验后写入内存并原子落盘 - 本局立即生效,后续对局保持一致
+[*]主机在联机开局瞬间快照本机全部 mod 配置,通过 BaseLib 自定义消息通道推送给所有队友
+[*]三个发送时机互相兜底:新建开局 / 读档建房 / 引擎 InitializeShared 兜底,确保先于首个随机消费者
+[*]队友端整包校验后[b]仅写入内存[/b] - 本局立即与主机一致
+[*][b]配置文件被冻结保护[/b]:会话期间队友的 cfg 文件绝不改写;对局结束或断线时自动恢复原字节
 [*]未安装的 mod / 不认识的配置项自动跳过,永不崩溃
 [/list]
 
@@ -33,7 +34,7 @@
 [list]
 [*][b]两端都订阅本 mod[/b](消息必须两端都能解析)
 [*]设置 -> Mod 设置 -> MpConfigSync -> 启用联机配置同步(默认开启)
-[*]之后正常联机即可 - 开局自动完成,无需任何操作
+[*]之后正常联机即可 - 开局自动完成,无需任何操作;主机的值只在会话内生效,退出后队友本地设置原样不变
 [/list]
 
 [i]Both host and every peer must subscribe. Enable in Settings -> Mod Settings -> MpConfigSync (on by default). Then just play - the sync happens automatically at run start.[/i]

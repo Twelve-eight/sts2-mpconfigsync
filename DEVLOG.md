@@ -299,3 +299,11 @@ BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
 - 事故记录: QuickLink 回退在 GSE 下失败 (socket 重建后好友 lobby 信息不刷新 → 客户端自动重连未发生 → 黑屏遮罩残留) —— 环境限制判定, 与 MCS 无关; 详见 docs/mcs-cracked-mp-test-2026-09-14.md。
 - 进房根因: 破解包 GSE 的 steam_appid=2963800 与引擎硬编码 2868840 不符 → 好友过滤器丢弃一切好友; 改 2868840 后进房正常。account_steamid/listen_port 键位经 DLL 字面量邻域验证。
 - 待办移交: 接收端鉴权 (MCS-2)、事务边界 (MCS-3 加固)、真实 Steam 环境复测 rejoin。
+
+## 2026-09-14 astra 第四轮证据口径复核
+
+当前 32ab359 的产品源码 hash 与第三轮相同. 已阅读后续双开报告, 承认报告中的新局/读档建房/正常断连恢复和用户读档成功观察; 本审查未重跑游戏. 不将旧未执行清单覆盖后来的真实记录.
+
+纠错: 上段待办所称接收端鉴权未实现与当前 AuthorizeSnapshot/Apply 及既有 host/disconnected/non-transport/forged sender 拒绝 probe 矛盾. 已实现和真实 transport/跨会话完整验证是两回事, 不再建议重复写同一校验. 227 项推送日志/相同 seed 不独立证明所有首消费者, 正常恢复不证明 setter/file/崩溃事务. 这些边界保持未验证, 不否定普通读档成功.
+
+当前分类见 astra-advice.md 和 ../astra-advice-evidence/2026-09-14/round4/review-results.json. 未改产品源码/实机配置/部署/操作游戏/push.

@@ -1,30 +1,22 @@
-## 第三轮复审 (2026-09-14)
+## 第四轮证据更新 (2026-09-14)
 
-当前隔离构建 exit 0, 0 warning/0 error. 对当前构建 DLL 调用了产品私有 `MainFile.ApplyPatches`, 不是绕过生产入口的逐类 probe: 23 个类型中识别 8 个补丁类, 安装 8 个引擎方法, 0 个补丁类失败. 证据: `../astra-advice-evidence/2026-09-14/build-results.json`, `mcs-production-apply.json`. 隔离夹具只替换 `sts2.dll` 的日志输出以避开 Godot native 调用, 没有启动 mod initializer, `RunManager`, lobby, transport 或 UI.
+当前 HEAD `32ab359`, 产品源码与第三轮 hash 无差异, 新变化主要为发布工件和记录. 第三轮私有 ApplyPatches 的 8 类/8 方法/0 失败仍有效, 本轮未重复跑相同构建或启动游戏.
 
-### P1 入口挂载已获隔离证明, 不等于实机加载闭合
+### 已有后续真实运行记录, 不再称完全未跑
 
-当前生产扫描器 `MainFile.cs:54-95` 已移除 `IsAbstract` 过滤并逐类隔离失败. 当前构建哈希 `ba03e9582bf65b07351b9f14ede4fe5772cfdd0fec83d0db99883769147328b8` 的真实私有 `ApplyPatches` 夹具结果为 8 类/8 方法/0 失败. 这关闭了上一轮生产入口可能跳过静态类的源码级疑点; 没有新游戏日志, 不能声称部署 DLL 已被实际加载.
+`SOURCE` (对后续执行报告的复核, 非本轮实机): [测试报告](../docs/mcs-cracked-mp-test-2026-09-14.md) 第 82-126 行记录双端新局推送 227 项, 用户读档建房正常, 断连后内存/13 cfg 恢复, Qurious snapshot kept. 接受这份新增历史观察, 不用旧第三轮未执行清单覆盖它. QuickLink 自动重连在该环境失败也保留为事实; 不能据此宣称真实 Steam 必好或必坏.
 
-### P1 lobby 时序仍是 SOURCE, 新早注册尚未覆盖真实 packet
+### 剩余验收边界
 
-当前 `LobbySnapshotBarrierPatches.cs:17-41` 的三个构造器 postfix 都调用 `MpNetSession.ObserveService`; `MpNetSession.cs:47-91` 只对每个 service 首次早注册 wrapper, `InitializeShared` backstop 再反注册. 引擎反编译 `NetMessageBus.cs:78-89,127-159` 仍证明无 handler 的非 buffered 消息直接丢弃, handler 注册不去重. `LobbySnapshotPushPatches.cs:70-91` 覆盖普通新局, 读档建房和 rejoin 的 host prefix, 源码顺序也分别早于 begin/rejoin send.
+报告的 sender push/相同 seed/日志 snapshot kept 不等于双方不一致初始配置在每个首消费者之前完成应用, 更不等于所有 rejoin/延迟/异常路径. 正常断连恢复不等于 setter/file 失败后的原子恢复; 共享配置目录的双开也不等于两套独立永久配置的完整矩阵. 这些仍为 `UNVERIFIED`, 不否定用户已确认的普通读档成功.
 
-但是本轮 registration fixture 未能接入真实 `INetGameService` 派发实现, 没有证明早注册发生在每个真实客户端 join/rejoin 建 lobby 之前, 也没有证明 backstop 反注册后 BaseLib handler 仍唯一. 因此生产 scanner 已挂载与所有进入路径已同步必须分开. 未运行双端.
+`SOURCE`: `ConfigSyncApplier.cs:119-166,169-225,250-302` 仍在保护失败后继续 setter, setter 失败后继续部分提交, restore 失败仍丢备份状态. `MpNetSession` 的服务状态清理边界仍需验证. 不把 Access denied 日志单独当普遍文件安全保证.
 
-### P1 会话事务边界仍开放
+### 纠正 "MCS-2 未实现" 的新记录漂移
 
-`ConfigSyncApplier.cs:119-166` 在 `ProtectConfigFiles` 失败后仍继续 setter commit; setter 失败后保留此前已提交值并继续. `:169-225` 先清 `RestoreSnapshot`, `:287-303` 对 restore 失败只记录并随后清 `FileBackups`. `RunManagerCleanUpPatch.cs:16-29` 只在真实 `CleanUp` postfix 调恢复, 本轮未注入 setter/file/中断故障. `MpNetSession.CurrentService` 与 `EarlyRegistered` 也没有清理路径. 正常 CleanUp 可恢复不能升级为崩溃安全或全局事务.
+当前 `MpNetSession.AuthorizeSnapshot` 和 Apply 已检查连接/Client/transport host; 第三轮 sync probe 实际有 host receiver, disconnected, non-transport, forged sender 拒绝和 genuine host 接受. 因此测试报告末行和 DEVLOG 的 "鉴权未实现" 不对应当前源码. 已实现不等于真实 transport override sender/跨会话边界均验收; 不重复建设已有校验.
 
-### 第三轮未执行
-
-没有运行真实游戏 initializer, 当前部署 DLL 新日志, 双端新局/读档/加入/rejoin, 延迟/丢包, 设置页防抖保存, 中途终止. `sync-probe-v2` 的既有 PROBE OK 仍只覆盖它实际执行的路径.
-
-### 历史第二轮结论 (已被本轮隔离证据修正)
-旧第二轮结论曾认为 lobby handler 尚未注册. 本轮当前 DLL 的真实私有 `MainFile.ApplyPatches` 已安装全部 8 类/8 方法, 当前源码的 constructor postfix 也执行早注册逻辑. 因此该结论不应再写成当前挂载事实.
-当前仍未闭合的是**真实 transport 和会话时序**, 不是生产扫描器未挂载: 没有双端验证构造器发生时刻, 快照到达/应用时刻, begin-run 前首个消费者, 以及 BaseLib 后续注册/早注册反注册后的 handler 数量. 引擎无 handler 丢弃和不去重仍是有效约束.
-
-结论: Reliable/in-order 只能保证已经进入总线的消息顺序, 不能保证接收 handler 已经存在. 客户端若在 lobby 阶段收到该包, 快照会被丢弃; 后面的 InitializeShared backstop 又晚于首个 `Populate/GenerateRooms` 消费者. 因此新局, 读档建房, 加入和 rejoin 仍不能称满足用户的"任何进入房间"契约. 建议在确实存在的 lobby transport handler 生命周期注册并与 BaseLib 后续注册去重, 或改用已注册的 lobby message path; 不要只把 `ShouldBuffer` 改回 true.
+本轮未改产品源码/报告作者的历史日志, 未部署/操作游戏/push. 以下是旧故障与第三轮边界记录, 不作为当前所有路径未执行的判断.
 
 ### P1 根因已定位: 生产扫描器误排除所有静态补丁类
 
