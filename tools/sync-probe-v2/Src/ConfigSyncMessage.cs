@@ -29,6 +29,12 @@ namespace MpConfigSync.MpConfigSyncCode;
 /// Bounds (MCS-5): Deserialize enforces entry/string caps so a hostile or corrupt
 /// packet cannot force huge allocations; Apply validates the whole snapshot before
 /// committing any value.
+///
+/// Receiver-side metadata resolution (MCS-1, 2026-09-15): Apply resolves per-mod
+/// property descriptors once per distinct mod per operation via an
+/// operation-scoped map that is discarded with the call - cached metadata only,
+/// never config values. Wire format, delivery semantics, and bounds here are
+/// untouched by that change.
 /// </summary>
 public class ConfigSyncMessage : ICustomMessage
 {

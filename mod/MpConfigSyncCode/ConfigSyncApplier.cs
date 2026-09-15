@@ -75,6 +75,15 @@ internal static class ConfigSyncApplier
         int count = Math.Min(Math.Min(message.ModIds.Count, message.PropertyNames.Count), message.Values.Count);
         MainFile.Log.Info($"Config sync accepted from host {senderId}: validating {count} entries");
 
+        // ---- MCS-1 (2026-09-15): one property-map resolution per distinct mod
+        // for this whole packet. Created here - AFTER authorization, so the
+        // auth check still precedes any scanning - filled on first reference
+        // per mod by ConfigPropertyScanner.Resolve (same BaseLib eligibility
+        // scan, unchanged), and discarded when this method returns: nothing is
+        // cached across packets, so an absent / later-registered / replaced
+        // config is re-resolved fresh on the next one. See OperationPropertyMap.
+        var propertyMaps = new OperationPropertyMap();
+
         // ---- MCS-5 phase 1: validate everything, change nothing.
         var pending = new List<(PropertyInfo Prop, object Value, string ModId, string Name)>();
         int unknownSkipped = 0;
@@ -85,7 +94,7 @@ internal static class ConfigSyncApplier
             string raw = message.Values[i];
             try
             {
-                Dictionary<string, PropertyInfo>? props = ConfigPropertyScanner.Resolve(modId);
+                Dictionary<string, PropertyInfo>? props = propertyMaps.Get(modId);
                 if (props == null)
                 {
                     unknownSkipped++;
@@ -163,7 +172,8 @@ internal static class ConfigSyncApplier
 
         MainFile.Log.Info($"Config sync applied: {applied}/{count} entries "
                           + $"({unknownSkipped} unknown mod/property skipped, {count - applied - unknownSkipped} setter failures), "
-                          + $"{touched.Count} mods touched (session-scoped; cfg files frozen until session end)");
+                          + $"{touched.Count} mods touched (session-scoped; cfg files frozen until session end), "
+                          + $"{propertyMaps.ResolvedModCount} distinct mods resolved this packet (MCS-1)");
     }
 
     /// <summary>Runs on RunManager.CleanUp: put the user's own values and files back.</summary>
@@ -176,6 +186,14 @@ internal static class ConfigSyncApplier
         _restoring = true;
         try
         {
+            // ---- MCS-1 (2026-09-15): one property-map resolution per distinct
+            // mod for this whole restore pass instead of one per property. Same
+            // lifecycle as Apply's map: created here, filled on first reference
+            // per mod, garbage when CleanUp returns. Restore semantics are
+            // unchanged - missing properties still skip per property, and a
+            // failed resolution is not memoized, so each property keeps its own
+            // skip decision exactly like the per-entry Resolve it replaced.
+            var propertyMaps = new OperationPropertyMap();
             foreach ((string modId, Dictionary<string, string> props) in RestoreSnapshot)
             {
                 ModConfig? config = ModConfigRegistry.Get(modId);
@@ -187,7 +205,7 @@ internal static class ConfigSyncApplier
                 {
                     try
                     {
-                        PropertyInfo? prop = ConfigPropertyScanner.Resolve(modId)?.GetValueOrDefault(name);
+                        PropertyInfo? prop = propertyMaps.Get(modId)?.GetValueOrDefault(name);
                         if (prop == null)
                         {
                             continue;
