@@ -2,3 +2,9 @@ mod/.godot/
 mod/bin/
 mod/obj/
 *.user
+
+# Probe build output (tools/*/bin, tools/*/obj): the mod-only patterns above do not
+# cover probe projects under tools/, which left untracked Release dirs in the worktree and
+# violated the clean-status criterion in AGENTS.md Sec 7 (found 2026-09-15).
+**/bin/
+**/obj/
