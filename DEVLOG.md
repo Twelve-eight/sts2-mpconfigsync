@@ -307,3 +307,47 @@ BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
 纠错: 上段待办所称接收端鉴权未实现与当前 AuthorizeSnapshot/Apply 及既有 host/disconnected/non-transport/forged sender 拒绝 probe 矛盾. 已实现和真实 transport/跨会话完整验证是两回事, 不再建议重复写同一校验. 227 项推送日志/相同 seed 不独立证明所有首消费者, 正常恢复不证明 setter/file/崩溃事务. 这些边界保持未验证, 不否定普通读档成功.
 
 当前分类见 astra-advice.md 和 ../astra-advice-evidence/2026-09-14/round4/review-results.json. 未改产品源码/实机配置/部署/操作游戏/push.
+
+## 2026-09-16 WS-0916-04: 冻结/恢复失败语义定稿 (ConfigSyncApplier.cs)
+
+审查结论 (workspace-state-evidence/2026-09-16-review/findings.json WS-0916-04): 元数据复用
+已实现, 但失败与恢复路径仍允许部分状态, 且失败后丢弃恢复记录. 四个确认缺陷: (1)
+`ProtectConfigFiles` 在 `FileBackups.Count > 0` 时提前返回 -> 首个包冻结后, 后续包新引入的
+mod 永不被冻结, 第三方订阅者可持久化主机值; (2) 冻结失败只记一行日志并 `Remove(path)`,
+apply 继续为"文件未受保护"的 mod 提交主机值; (3) `UnprotectConfigFiles` 还原失败仅记日志
+后无条件 `Clear()`, 销毁用户字节的唯一副本; (4) commit 循环吞掉 `SnapshotOwnValue`/setter
+失败, 只计入 `setter failure`, 无回滚/拒绝语义.
+
+本次改动 (只动 `mod/MpConfigSyncCode/ConfigSyncApplier.cs`):
+
+- **冻结改为增量 + 幂等**: 去掉 `FileBackups.Count > 0` 的提前返回; 每个包冻结该包点名的
+  mod, 已存在的路径保留原始字节不重复快照. 后续包新引入的 mod 现在会被冻结.
+- **冻结失败策略 = 整包拒绝 (all-or-nothing)**: `ProtectConfigFiles` 返回 bool, 任一"磁盘上
+  存在却无法冻结"的 cfg -> 在第一个 `SetValue` 之前返回 false, 调用方记
+  `outcome=REJECTED` 并 return, 不提交任何值. 该次调用已成功冻结的文件**保留** (它们是
+  保护性的且持有原始字节, 会话结束无损还原). 磁盘上无 cfg 的 mod 无用户字节可保护, 不算
+  失败.
+- **备份条目仅在冻结真正生效后才登记**, 因此 `FileBackups` 不会为"未被冻结的文件"持有字节.
+- **保留的备份不成为保护空洞**: `ProtectConfigFiles` 遇到"已登记但当前未带只读标志"的路径
+  (上次还原清了标志、字节写回失败而保留了条目) 会重新置只读并记 Warn; 保留的原始字节不动.
+  否则该 mod 会被当成"已冻结"跳过, 第三方订阅者又能持久化主机值.
+- **setter 失败显式化**: 计数 `failed`, 汇总行改为 `outcome=OK|PARTIAL applied=A/N
+  (skipped=.., failed=.., excluded=0)`; `failed > 0` 时另发一条 Error 说明哪些条目留在原值.
+- **恢复无损**: `UnprotectConfigFiles` 改为逐条在属性还原+字节写入都成功后才 `Remove`;
+  失败条目保留在 `FileBackups` 并以 Error 报告. 不再无条件 `Clear()`.
+- **保留的备份可达**: `RestoreLocalSettings` 的守卫从 `RestoreSnapshot.Count == 0` 放宽为
+  "两者皆空", 因此上一次还原失败留下的条目会在下次 CleanUp 再试, 而不是永远不可达.
+- 不变: 主机鉴权 (MCS-2), MCS-1 操作域属性表, MCS-3 无写穿, 消息/序列化布局, 不触发
+  `Changed()`, 只用 `ConfigReloaded()` 刷 UI.
+
+验证 (`tools/sync-probe-v3/`, 无引擎/无 Godot/无游戏进程): 该 probe 通过
+`<Compile Include="../../mod/MpConfigSyncCode/...">` **原地编译生产源码** (仅 `MainFile.Log`
+是 shim), 因此不会与出厂接收端漂移. 39 项断言覆盖: 第二个包引入的 mod 被增量冻结且写保护
+生效; 冻结失败整包拒绝且障碍移除后同一包成功; setter 失败报 `outcome=PARTIAL applied=1/2
+failed=1`; 还原失败保留备份, 保留条目在后续包被重新冻结, 且后续重试恢复出会话前精确字节.
+**回归对照**: 同一 probe 对
+`G:\pre-omp works` 的改动前源码运行 -> 14 项失败 (四个缺陷全部命中), 对改动后源码 -> 39 项
+全过, 证明 probe 确实判别修复.
+
+未执行 (按本轮边界): 未运行 `dotnet build` 构建 mod 本体, 未部署, 未启动游戏/Steam, 未做
+实机双端. 冻结/恢复失败路径的真实权限/AV/杀软触发方式仍是实机未验证边界.

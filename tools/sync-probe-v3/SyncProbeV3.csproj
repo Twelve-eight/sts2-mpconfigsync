@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SyncProbeV3</AssemblyName>
+    <RootNamespace>SyncProbeV3</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- NO GodotSharp runtime use: GodotSharp is referenced only because
+         PacketWriter/Mathf (pure managed math) sit in the engine's shared
+         types. If these sources compile AND run without touching a Godot
+         native static, the no-Godot claim holds. -->
+    <Reference Include="sts2"><HintPath>G:/steam/steamapps/common/Slay the Spire 2/data_sts2_windows_x86_64/sts2.dll</HintPath></Reference>
+    <Reference Include="GodotSharp"><HintPath>G:/steam/steamapps/common/Slay the Spire 2/data_sts2_windows_x86_64/GodotSharp.dll</HintPath></Reference>
+    <Reference Include="BaseLib"><HintPath>G:/steam/steamapps/workshop/content/2868840/3737335127/BaseLib/BaseLib.dll</HintPath></Reference>
+  </ItemGroup>
+  <!-- Exact-source fixture, no copies: unlike sync-probe-v2 (which snapshots the
+       sources into Src/), this probe compiles the PRODUCTION files in place, so
+       it can never drift from the shipped receiver and it fails to build exactly
+       when the production sources fail to build. Only the logger is a shim
+       (NetStubs.cs), because the real MainFile's Logger static initializer
+       reaches into the Godot runtime. -->
+  <ItemGroup>
+    <Compile Include="../../mod/MpConfigSyncCode/ConfigSyncApplier.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/ConfigSyncMessage.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/MpNetSession.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/ConfigPropertyScanner.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/MpConfigSyncConfig.cs" />
+  </ItemGroup>
+</Project>
