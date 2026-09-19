@@ -1,11 +1,14 @@
 "workshopitem"
 {
 	"appid"		"2868840"
-	"contentfolder"		"G:\\omp works\\sts2-mpconfigsync\\workshop\\content"
-	"previewfile"		"G:\\omp works\\sts2-mpconfigsync\\workshop\\preview.png"
+	"contentfolder"		"G:\\omp works\\Sts\\sts2-mpconfigsync\\workshop\\content"
+	"previewfile"		"G:\\omp works\\Sts\\sts2-mpconfigsync\\workshop\\preview.png"
 	"visibility"		"0"
-	"title"		"MpConfigSync (主机配置自动下发 / Host Config Sync)"
+	"title"		"MpConfigSync (主机配置自动下发 / Host Config Sync) [测试中]"
 	"description"		"[h1]MpConfigSync(主机配置自动下发)[/h1]
+
+[b]测试中[/b] -- 本模组仍在测试中, 内容与数值可能随版本调整, 欢迎反馈问题.
+[i]WORK IN PROGRESS - still being tested; content and numbers may change between versions.[/i]
 
 联机开局时,主机自动把全部 mod 配置推送给每一位队友,从根源上消除两端配置不同导致的联机分歧.
 
