@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SyncProbeV4</AssemblyName>
+    <RootNamespace>SyncProbeV4</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- NO GodotSharp runtime use: GodotSharp is referenced only because
+         PacketWriter/PacketReader/Mathf (pure managed math) sit in the engine's
+         shared types. If these sources compile AND run without touching a Godot
+         native static, the no-Godot claim holds.
+         0Harmony is referenced because the compiled production file
+         Patches/LobbySnapshotPushPatches.cs uses HarmonyLib attributes.
+         The engine DLLs are read-only references to the E: TEST copy; E: and the
+         Steam install are byte-identical (sha256-verified), and nothing is ever
+         written to either. Private=true (the default) only copies them into bin/. -->
+    <Reference Include="sts2">
+      <HintPath>E:/Slay the Spire 2/data_sts2_windows_x86_64/sts2.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="GodotSharp">
+      <HintPath>E:/Slay the Spire 2/data_sts2_windows_x86_64/GodotSharp.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>E:/Slay the Spire 2/data_sts2_windows_x86_64/0Harmony.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="BaseLib">
+      <HintPath>E:/Slay the Spire 2/mods/BaseLib/BaseLib.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <!-- Exact-source fixture, no copies: this probe compiles the PRODUCTION files
+       in place (the sync-probe-v3 pattern), so it can never drift from the
+       shipped receiver and it fails to build exactly when the production sources
+       fail to build. Only the logger is a shim (NetStubs.cs), because the real
+       MainFile's Logger static initializer reaches into the Godot runtime. -->
+  <ItemGroup>
+    <Compile Include="../../mod/MpConfigSyncCode/ConfigSyncApplier.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/ConfigSyncMessage.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/MpNetSession.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/ConfigPropertyScanner.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/MpConfigSyncConfig.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/SnapshotBuilder.cs" />
+    <Compile Include="../../mod/MpConfigSyncCode/Patches/LobbySnapshotPushPatches.cs" />
+  </ItemGroup>
+</Project>

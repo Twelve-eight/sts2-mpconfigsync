@@ -50,15 +50,19 @@ internal static class LobbySnapshotPush
                 MainFile.Log.Info($"Config sync disabled locally, not pushing ({phase})");
                 return;
             }
-            ConfigSyncMessage message = SnapshotBuilder.Build();
+            ConfigSyncMessage message = SnapshotBuilder.Build(out int oversizedSkipped);
+            // R05-04: entries whose fields exceed the wire caps are dropped by the
+            // builder (logged there, one line per key) rather than truncating a
+            // user's value. The count rides in both outcome lines so a partial
+            // snapshot is never silent.
             if (message.ModIds.Count == 0)
             {
-                MainFile.Log.Info($"Config sync: no syncable config entries found, nothing to push ({phase})");
+                MainFile.Log.Info($"Config sync: no syncable config entries found ({oversizedSkipped} skipped as oversized), nothing to push ({phase})");
                 return;
             }
             CustomMessageWrapper.Send(message, net);
             MpNetSession.ObserveService(net);
-            MainFile.Log.Info($"Config sync: pushed {message.ModIds.Count} entries to all peers ({phase})");
+            MainFile.Log.Info($"Config sync: pushed {message.ModIds.Count} entries to all peers ({oversizedSkipped} skipped as oversized) ({phase})");
         }
         catch (Exception e)
         {
