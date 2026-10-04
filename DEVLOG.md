@@ -362,3 +362,12 @@ failed=1`; 还原失败保留备份, 保留条目在后续包被重新冻结, �
 - 原始日志 G:\omp works\.tmp\workshop-prep-20261004-central\MpConfigSync-release-rebuild.log; 最终字节四-mods结果 four-mods-rebuild-results.json, 24路径结果 producer-fixtures-20261005-045406\results.json. 前版warning证据单独保留为对应 *-r2-before-warning-fix.log/json.
 - 请求与安全session元数据为Codex原生 global:deepseek-v4.1-flash / max / provider gateway, 更细wb2api子路由Unknown. 独立监督报告 G:\omp works\Sts\sts2-spire1\docs\reports\workshop-prep-20261004\resume-pck-supervisor-r2.md 和 pck-warning-supervisor-r3.md; 最终监督/全量门禁状态以该目录中央最终报告为准, 本段不预称尚在运行的监督通过.
 - 未调用SteamCMD, 未上传Workshop, 未部署任何游戏安装, 未触碰共享mod_configs. 游戏/UI/长局/多人/性能新增验收未覆盖; inner-export残余consumer拒绝边界见DEVELOP.
+
+
+## 2026-10-05 Workshop发布暂存准备
+
+- 本轮仅推送前准备, 未上传Workshop, 未调用SteamCMD/读取凭据/消耗登录冷却, 未写Steam安装或共享mod_configs, 未操作游戏.
+- 统一refresh在2026-10-05 UTC+8刷新本仓MpConfigSync暂存, 来源为canonical Release artifact和源码manifest. 本仓后续-Only MpConfigSync -VerifyOnly exit0, 原始命令与输出G:/omp works/.tmp/workshop-prep-20261004-central/r4-real-final-verification-results.json.
+- 本仓来源通过不是全量可上传证明. 全量仅Spire1 REBUILD_REQUIRED, 因另一个Forms会话正在改其源码; 正式Spire1 wrapper GuardsOnly在全量provenance拒绝. -Only不豁免正式上传入口的全量检查.
+- 复制前备份r4-staging-backup.json, 最终本仓各文件hash在r4-final-seven-payloads.json. 原refresh的freshness在复制后核验, 失败不保证全部staging未写; 本次有效刷新不回填旧包.
+- 本轮无新增游戏运行验收. 只精确备份本仓发布暂存与本段日志, 保留已有dirty源码/路径清理/advice删除, 不git add -A. 中央接续入口G:/omp works/Sts/sts2-spire1/docs/CHECKPOINT-workshop-prep-20261005.md.
