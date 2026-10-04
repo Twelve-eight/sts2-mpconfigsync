@@ -351,3 +351,14 @@ failed=1`; 还原失败保留备份, 保留条目在后续包被重新冻结, �
 
 未执行 (按本轮边界): 未运行 `dotnet build` 构建 mod 本体, 未部署, 未启动游戏/Steam, 未做
 实机双端. 冻结/恢复失败路径的真实权限/AV/杀软触发方式仍是实机未验证边界.
+
+## 2026-10-05 Workshop PCK 摘要 producer 与中央重建
+
+- 本轮仅修改 MpConfigSync.csproj 的新增 ReadPckMetadata/BeginQuickPckDigest/WriteQuickPckDigest 块, 不改变玩法源码、依赖或部署策略. 保留本任务开始前已有 dirty, 不整文件夹带提交.
+- 原问题为 Release目录缺少 .pck.sha256, 导致正式上传入口全量预检 PCK_DIGEST_MISSING, 即使只上传Spire1也会被拒绝. 修复在真实PackPck成功后按实际字节生成ASCII64hex并回读, 与自动部署开关独立.
+- 首版真实Rebuild退出0但工厂生成的Fragment有CS0162. 同批DeepSeek实现+监督接续最小修复, 成功路径删除显式return true, 保留missing/error的false; 请求中的Log.HasLoggedErrors假设已由实际MSBuild工厂return Success默认true更正. 不suppress警告.
+- 中央返工后真实Release Rebuild exit0, 0 warnings/0 errors, PCK/digest一致且实际mtime不早于DLL和pack起点; 显式no-deploy与非Steam测试路径. 该结果不称为游戏运行验收.
+- 四项目合计24路径producer隔离矩阵全部通过, 使用生产块、真实PckPacker和合成metadata DLL, 不是游戏DLL. 本项目六路径为success/skipped/pack-failure/disabled/inner-export/missing-dll. 详情按中央results.json, 不复制其它轮计数.
+- 原始日志 G:\omp works\.tmp\workshop-prep-20261004-central\MpConfigSync-release-rebuild.log; 最终字节四-mods结果 four-mods-rebuild-results.json, 24路径结果 producer-fixtures-20261005-045406\results.json. 前版warning证据单独保留为对应 *-r2-before-warning-fix.log/json.
+- 请求与安全session元数据为Codex原生 global:deepseek-v4.1-flash / max / provider gateway, 更细wb2api子路由Unknown. 独立监督报告 G:\omp works\Sts\sts2-spire1\docs\reports\workshop-prep-20261004\resume-pck-supervisor-r2.md 和 pck-warning-supervisor-r3.md; 最终监督/全量门禁状态以该目录中央最终报告为准, 本段不预称尚在运行的监督通过.
+- 未调用SteamCMD, 未上传Workshop, 未部署任何游戏安装, 未触碰共享mod_configs. 游戏/UI/长局/多人/性能新增验收未覆盖; inner-export残余consumer拒绝边界见DEVELOP.

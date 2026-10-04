@@ -98,4 +98,89 @@
         <Copy SourceFiles="$(PckPackerOutputPath)"
               DestinationFolder="$(ModsPath)/$(MSBuildProjectName)" />
     </Target>
+
+    <!-- ===================== quick PackPck digest producer (2026-10-05) =====================
+         Contract: a real PackPck run owns the digest next to its PCK. BeginQuickPckDigest runs
+         before PackPck and deletes the previous digest, so a skipped or failed pack can never
+         leave an old record behind. WriteQuickPckDigest runs only after PackPck exits 0 without
+         the skip flag, and refuses to stamp unless the PCK exists, is non-empty, and its actual
+         mtime is not older than this pack start or the just-built DLL. A skipped/unsupported
+         pack stamps nothing (fail closed). This producer is independent of
+         CopyToModsFolderOnBuild: a no-deploy build still writes the adjacent digest.
+         PckPackerEnabled=false and inner Godot exports cause no producer activity.
+         ====================================================================================== -->
+    <UsingTask TaskName="ReadPckMetadata" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+        <ParameterGroup>
+            <PckPath ParameterType="System.String" Required="true" />
+            <LastWriteUtcTicks ParameterType="System.String" Output="true" />
+            <Length ParameterType="System.String" Output="true" />
+            <Sha256 ParameterType="System.String" Output="true" />
+        </ParameterGroup>
+        <Task>
+            <Using Namespace="System" />
+            <Using Namespace="System.IO" />
+            <Using Namespace="System.Security.Cryptography" />
+            <Code Type="Fragment" Language="cs"><![CDATA[
+        try
+        {
+            var info = new FileInfo(PckPath);
+            if (!info.Exists) { Log.LogError("file missing"); return false; }
+            LastWriteUtcTicks = info.LastWriteTimeUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            Length = info.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            using (var stream = info.OpenRead()) using (var sha = SHA256.Create()) Sha256 = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", String.Empty).ToUpperInvariant();
+        }
+        catch (Exception ex) { Log.LogErrorFromException(ex, true); return false; }
+            ]]></Code>
+        </Task>
+    </UsingTask>
+
+    <Target Name="BeginQuickPckDigest" BeforeTargets="PackPck"
+            Condition="'$(PckPackerEnabled)' == 'true' and '$(IsInnerGodotExport)' != 'true' and Exists('$(PckPackerSourceDir)')">
+        <PropertyGroup>
+            <_QuickPckPackStartUtcTicks>$([System.DateTime]::UtcNow.Ticks)</_QuickPckPackStartUtcTicks>
+        </PropertyGroup>
+        <Delete Files="$(PckPackerOutputPath).sha256" TreatErrorsAsWarnings="false" />
+        <Message Text="QUICK-PCK-DIGEST: old digest invalidated before pack: $(PckPackerOutputPath).sha256" Importance="normal" />
+    </Target>
+
+    <Target Name="WriteQuickPckDigest" AfterTargets="PackPck"
+            Condition="'$(PckPackerEnabled)' == 'true' and '$(IsInnerGodotExport)' != 'true' and '$(PckPackerSkipped)' != 'true' and '$(_PckPackerExitCode)' == '0'">
+        <PropertyGroup>
+            <_QuickPckDigestPath>$(PckPackerOutputPath).sha256</_QuickPckDigestPath>
+        </PropertyGroup>
+        <Error Condition="'$(_QuickPckPackStartUtcTicks)' == ''"
+               Text="QUICK-PCK-DIGEST-DENY [no-pack-start]: BeginQuickPckDigest did not record this pack; refusing to stamp $(PckPackerOutputPath)." />
+        <Error Condition="!Exists('$(PckPackerOutputPath)')"
+               Text="QUICK-PCK-DIGEST-DENY [pck-missing]: PackPck reported success but $(PckPackerOutputPath) does not exist; refusing to stamp an old artifact." />
+        <ReadPckMetadata PckPath="$(PckPackerOutputPath)">
+            <Output TaskParameter="LastWriteUtcTicks" PropertyName="_QuickPckLastWriteUtcTicks" />
+            <Output TaskParameter="Length" PropertyName="_QuickPckLength" />
+            <Output TaskParameter="Sha256" PropertyName="_QuickPckSha256" />
+        </ReadPckMetadata>
+        <ReadPckMetadata PckPath="$(TargetPath)">
+            <Output TaskParameter="LastWriteUtcTicks" PropertyName="_QuickPckDllLastWriteUtcTicks" />
+            <Output TaskParameter="Length" PropertyName="_QuickPckDllLength" />
+            <Output TaskParameter="Sha256" PropertyName="_QuickPckDllSha256" />
+        </ReadPckMetadata>
+        <Error Condition="'$(_QuickPckLength)' == '' or '$(_QuickPckLength)' == '0'"
+               Text="QUICK-PCK-DIGEST-DENY [empty]: $(PckPackerOutputPath) is empty or unreadable; refusing to stamp it." />
+        <Error Condition="'$(_QuickPckLastWriteUtcTicks)' == ''"
+               Text="QUICK-PCK-DIGEST-DENY [no-pck-mtime]: cannot read the PCK mtime; refusing to stamp $(PckPackerOutputPath)." />
+        <Error Condition="'$(_QuickPckLastWriteUtcTicks)' &lt; '$(_QuickPckPackStartUtcTicks)'"
+               Text="QUICK-PCK-DIGEST-DENY [stale-vs-pack]: $(PckPackerOutputPath) mtime $(_QuickPckLastWriteUtcTicks) predates this pack start $(_QuickPckPackStartUtcTicks); refusing to stamp it." />
+        <Error Condition="'$(_QuickPckDllLastWriteUtcTicks)' == ''"
+               Text="QUICK-PCK-DIGEST-DENY [no-dll-mtime]: cannot read the build DLL mtime; refusing to stamp $(PckPackerOutputPath)." />
+        <Error Condition="'$(_QuickPckLastWriteUtcTicks)' &lt; '$(_QuickPckDllLastWriteUtcTicks)'"
+               Text="QUICK-PCK-DIGEST-DENY [stale-vs-dll]: $(PckPackerOutputPath) mtime $(_QuickPckLastWriteUtcTicks) predates the build DLL mtime $(_QuickPckDllLastWriteUtcTicks); refusing to stamp it." />
+        <WriteLinesToFile File="$(_QuickPckDigestPath)" Lines="$(_QuickPckSha256)" Overwrite="true" Encoding="ASCII" />
+        <PropertyGroup>
+            <_QuickPckDigestReadBack></_QuickPckDigestReadBack>
+            <_QuickPckDigestReadBack Condition="Exists('$(_QuickPckDigestPath)')">$([System.IO.File]::ReadAllText('$(_QuickPckDigestPath)').Trim())</_QuickPckDigestReadBack>
+        </PropertyGroup>
+        <Error Condition="'$(_QuickPckDigestReadBack)' == ''"
+               Text="QUICK-PCK-DIGEST-DENY [digest-missing]: failed to write the digest record $(_QuickPckDigestPath); refusing to continue." />
+        <Error Condition="'$(_QuickPckDigestReadBack)' != '$(_QuickPckSha256)'"
+               Text="QUICK-PCK-DIGEST-DENY [digest-mismatch]: digest record read back as '$(_QuickPckDigestReadBack)' but the PCK bytes hash to '$(_QuickPckSha256)'; refusing to continue." />
+        <Message Text="QUICK-PCK-DIGEST-ALLOW: $(_QuickPckDigestPath) = $(_QuickPckSha256)" Importance="high" />
+    </Target>
 </Project>
