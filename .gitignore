@@ -8,3 +8,5 @@ mod/obj/
 # violated the clean-status criterion in AGENTS.md Sec 7 (found 2026-09-15).
 **/bin/
 **/obj/
+
+.nuget/
