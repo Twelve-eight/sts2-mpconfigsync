@@ -22,6 +22,7 @@ namespace MpConfigSync.MpConfigSyncCode;
 /// idempotent with the lobby push (equal values).
 /// </summary>
 [HarmonyPatch(typeof(RunManager), "InitializeShared")]
+[HarmonyBefore("BaseLib")]
 internal static class RunManagerInitializeSharedPatch
 {
     private static void Postfix(RunManager __instance)
@@ -34,9 +35,11 @@ internal static class RunManagerInitializeSharedPatch
                 return;
             }
             LobbySnapshotPush.PushIfHost(net, "initialize-shared backstop");
-            // BaseLib registers CustomMessageWrapper on this service in ITS
-            // InitializeShared postfix; undo our lobby-phase registration so
-            // the handler is not installed twice (engine does not dedupe).
+            // Harmony ordering is explicit: this postfix runs BEFORE BaseLib's
+            // InitializeShared postfix (owner id "BaseLib"). Remove our early
+            // registration first; BaseLib then installs exactly one normal handler.
+            // Without the ordering contract, UnregisterMessageHandler removes ALL
+            // equal delegates and could erase BaseLib's handler as well.
             MpNetSession.UnregisterEarlyHandler(net);
         }
         catch (Exception e)

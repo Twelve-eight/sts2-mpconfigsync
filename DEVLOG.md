@@ -287,16 +287,16 @@ BaseLib `RunManagerPatches.InitializeCustomMessageHandlers`
   `Harmony: 8 method(s) patched across 23 type(s), 0 patch class(es) failed` —— astra 第三轮
   "生产扫描器已修复但未实机加载" 的缺口就此闭合 (实机挂载证据)。部署的是本仓重建版
   (SHA256 879DF477…, 源码 = 当前 HEAD)。
-- 测试环境: A = `I:\Slay the Spire 2\` (Goldberg), B = `G:\omp works\sts2-test-client-B\`
+- 测试环境: A = `I:\Slay the Spire 2\`(`I:` 已于 2026-09-17 迁至 `E:\Slay the Spire 2`, 见 AGENTS.md Sec 2b) (Goldberg), B = `G:\omp works\sts2-test-client-B\`
   (完整克隆, 独立 Goldberg 身份 TEST_B / local_steam_id 76561199520000001)。mod 集 = 51 个
-  真实会话镜像, 两副本逐字节一致。完整报告: `docs/mcs-cracked-mp-test-2026-09-14.md`。
+  真实会话镜像, 两副本逐字节一致。完整报告: `../docs/historical/mcs-cracked-mp-test-2026-09-14.md`。
 - 环境修复两处 (与 MCS 无关但记录): Mesugaki 换工坊 0.1.2; 测试副本 Perfect.json 补
   ActsFromThePast 依赖 (加载顺序敏感的可选依赖, 加载器拓扑排序后 Perfect 初始化成功)。
 - 阶段 3 待执行: 双开大厅 → 配置下发/本局隔离/读档建房/rejoin 场景矩阵 (报告 §阶段 3)。
 
 ## 2026-09-14 阶段 3 完成: 三条推送路径 + 恢复矩阵真实双端验证
 - Goldberg 双开 (A 主机 / B 客户端) 完整跑通: start-lobby begin、load-lobby begin、initialize-shared backstop 三条推送路径全部触发 (227 entries); 文件冻结拦截了客户端防抖保存 (BaseLib Access denied = 按设计); 断连场景下 13 个 cfg 逐一恢复到会话前字节; 0.5.7 同款 LastRunSeed 续档思路在 Qurious 侧真实读档局验证 (snapshot kept)。
-- 事故记录: QuickLink 回退在 GSE 下失败 (socket 重建后好友 lobby 信息不刷新 → 客户端自动重连未发生 → 黑屏遮罩残留) —— 环境限制判定, 与 MCS 无关; 详见 docs/mcs-cracked-mp-test-2026-09-14.md。
+- 事故记录: QuickLink 回退在 GSE 下失败 (socket 重建后好友 lobby 信息不刷新 → 客户端自动重连未发生 → 黑屏遮罩残留) —— 环境限制判定, 与 MCS 无关; 详见 ../docs/historical/mcs-cracked-mp-test-2026-09-14.md。
 - 进房根因: 破解包 GSE 的 steam_appid=2963800 与引擎硬编码 2868840 不符 → 好友过滤器丢弃一切好友; 改 2868840 后进房正常。account_steamid/listen_port 键位经 DLL 字面量邻域验证。
 - 待办移交: 接收端鉴权 (MCS-2)、事务边界 (MCS-3 加固)、真实 Steam 环境复测 rejoin。
 
@@ -371,3 +371,109 @@ failed=1`; 还原失败保留备份, 保留条目在后续包被重新冻结, �
 - 本仓来源通过不是全量可上传证明. 全量仅Spire1 REBUILD_REQUIRED, 因另一个Forms会话正在改其源码; 正式Spire1 wrapper GuardsOnly在全量provenance拒绝. -Only不豁免正式上传入口的全量检查.
 - 复制前备份r4-staging-backup.json, 最终本仓各文件hash在r4-final-seven-payloads.json. 原refresh的freshness在复制后核验, 失败不保证全部staging未写; 本次有效刷新不回填旧包.
 - 本轮无新增游戏运行验收. 只精确备份本仓发布暂存与本段日志, 保留已有dirty源码/路径清理/advice删除, 不git add -A. 中央接续入口G:/omp works/Sts/sts2-spire1/docs/CHECKPOINT-workshop-prep-20261005.md.
+
+## 2026-10-26 WS-0916-04 复核: setter 失败即回滚原值快照 + 双端验证清单
+
+复核口径: 基线 `9303868..HEAD` (c7d2326) 只有文档/工装/工坊暂存改动, 接收端行为全部来自
+工作树未提交改动; WS-0916-04 的"cfg 文件冻结 + 只读标志"方案已被 B01 (2026-10-02, 见
+DEVELOP "事务与恢复契约") 整体取代, 因此本轮按"无文件 I/O"合同复核 setter 失败 / 只读 cfg /
+回滚三条, 不重开冻结方案.
+
+发现 (证据在源码):
+
+- **缺陷: setter 失败会把刚建立的原值快照永久钉住**. 旧提交循环在 `entry.Prop.SetValue`
+  抛异常时只 `setterFailed++/failed++` 并记日志, 而 `SnapshotOwnValue` 在 SetValue 之前已把
+  该属性登记进 `RestoreSnapshot`; 代码不区分"主机值是否真的提交过". 由此被迫产生三个后果:
+  ① 该属性此后永不重新捕获 (`SnapshotOwnValue` 见已有条目直接 return), 用户在同一进程内改的
+  新值不会被捕获, 下次 CleanUp 反过来用旧快照覆盖用户的编辑; ② 每次 `RunManager.CleanUp` 都
+  重试同一个抛异常的 setter, `outcome=PARTIAL ... RETAINED` 永久重复; ③ 当时 PARTIAL 明细行
+  声称"原值快照保留以便 CleanUp 恢复", 对始终抛异常的 setter 是空头承诺.
+  仓库自带的触发物: `tools/sync-probe-v3` 的 `ThrowingSettings` (setter 恒抛).
+- 修复 (产品代码只动 `ConfigSyncApplier.cs`): `SnapshotOwnValue` 返回"本次是否新建条目"; 新增
+  `RollBackOwnValue` —— setter 失败且本次新建时, 把用户原值写回并**仅在写回成功后**删除条目
+  (属性回到本包之前的准确值, 之后用户编辑仍可被捕获); 写回也失败则保留条目等 CleanUp 重试;
+  该属性已有更早条目 (前一个数据包或本包更早一条) 的主机值 (`capturedNow == false`) 时
+  **不回滚**, 否则会连带还原那个主机值, 条目保留并在日志写明
+  "an earlier host value stays in effect". 汇总行改为
+  `failed=F = S snapshot + T setter (R rolled back)`, PARTIAL 明细区分 captured nothing /
+  rolled back / retain 三类. 类注释新增 SETTER ROLLBACK 段, `RestoreSnapshot` 字段注释补
+  "条目只在主机值生效或待还原时存在"的不变式.
+- 工具漂移 (同时修): `tools/sync-probe-v3` 原断言已删除的 `FileBackups`/只读冻结, 能编译但
+  运行即失败; 现重写为当前合同的 6 个场景 (内存-only 捕获 / 拒绝值回滚 / 更早主机值保留 /
+  只读 cfg 不受影响 / 未注册 mod 保留后重试 / 始终抛异常保留). `tools/sync-probe-v4` 第 6 节
+  的 `FileBackups().Count` 与冻结断言改为"bytes 不变 + 属性不变 + RestoreSnapshot 计数".
+  `tools/sync-probe-v2` 头部标注为 pre-B01 历史快照, 不再当作当前接收端证据.
+- 未执行 (本轮边界): 未 `dotnet build`, 未部署任一测试副本, 未启动游戏/Steam, 未运行 probe,
+  未做双端. 因此 probe 的 PASS 与"实机 setter/file 事务"仍待主会话在用户给的窗口里执行.
+- 只读访问: 共享 AppData `G:/appdata/C-Users-o_Obl/Roaming/SlayTheSpire2/` (含 `mod_configs/`,
+  `logs/godot.log`) 仅读取. 未写 E:/、Steam 安装、共享 mod_configs, 未提交/推送.
+
+### 双端验证清单 (E: 主机 + B 测试副本, DirectConnectIP 直连)
+
+前置:
+
+- 副本: 主机 `E:\Slay the Spire 2\`; 客机 `G:\omp works\Sts\_runtime\sts2-test-client-B\`
+  (两者 `mods\MpConfigSync\{dll,pdb,pck,json}` 已存在, 需确认是本轮构建).
+- 必需 mod: 两端都装 `BaseLib`、`STS2-RitsuLib` (DirectConnectIP 2.0.1 依赖 ≥0.5.1) 与
+  `DirectConnectIP` (E: 为 `mods\DirectConnectIP.{pck,dll,json}` 散文件, B 为
+  `mods\DirectConnectIP\`). 发布部署只能用 B 作 `ModsPath` (E: 含 `steam_appid.txt`, 守卫
+  DENY), 所以 E: 必须在构建后**手工复制** `mods\MpConfigSync\` 四件.
+- 共享目录: 两个实例共用 `%APPDATA%\SlayTheSpire2` (= `G:\appdata\C-Users-o_Obl\Roaming\
+  SlayTheSpire2`), `mod_configs\` 与 `logs\godot.log` 都是共用的一份; 日志按启动时间轮转为
+  `godot2026-*.log`, 归属靠每份日志第 7 行 `release_info.json at:` 的路径判定.
+- 构建身份 (先判一次): `MpConfigSync initialized` 行 —— 新构建为
+  `... (send patches registered=True, receive patches registered=True; ...)`, 旧构建为
+  `... (host pushes config snapshot at run start; ...)`. 另外新构建**永不**出现
+  `frozen for this session`. 若看到冻结行, 说明部署的是 B01 之前的包, 本清单的只读项预期会变成
+  `could not freeze` + `outcome=REJECTED`.
+
+场景 1 — 正常下发 + 会话级恢复:
+
+1. 备份 `mod_configs\` 全目录到 `G:\tmp\mpconfigsync-verify\` (当前为 22 个 cfg 加一个
+   `Clawd.cfg.bak-20261015`), 并记录全目录文件 hash 清单.
+2. 只启动客机 B (不启动 A), 进主菜单, 记下 `Spire1.cfg` 里 `DebugShowLocKeys=False` 为 B 的
+   内存值.
+3. B 仍开着时把 `Spire1.cfg` 的 `DebugShowLocKeys` 改成 `True` 落盘 (备份在手), 再启动主机 A
+   (A 启动时读到 True).
+4. A 建大厅 (多人 → 主机), B 用 DirectConnectIP 的 IP 加入 (同一台机器填 `127.0.0.1` 与
+   A 房间界面显示的端口), 两端准备后 A 点开始.
+5. 期望 A 日志: `Config sync: pushed <N> entries to all peers ... (start-lobby begin)`; B 日志:
+   `Config sync accepted from host <id>: validating <N> entries` 与
+   `Config sync outcome=OK applied=<N>/<N> entries`; B 上 `Spire1.cfg` 内容仍是 True (共用同一份
+   文件, 本项不作为独立证据), 但 Spire1 设置页应显示 True, 说明值来自内存覆盖.
+6. 结束本局 (撤退/返回菜单) 触发 `RunManager.CleanUp`. 期望 B 日志:
+   `Config sync restore outcome=OK applied=<N> failed=0 skipped=0 remaining=0 entry(ies) in 0 mod(s)`;
+   B 设置页应回到 False (用户自己的值), 磁盘 `Spire1.cfg` 仍是 True. 这一条同时证明
+   "会话级覆盖 + MCS 不写盘"和"没有残留快照".
+   失败判据: B 出现 `remaining=` 非 0、`outcome=PARTIAL`、或 `setter failed` / `rolled back` /
+   `RETAINED` 任一行.
+
+场景 2 — 只读 cfg (安全注入, 只在测试时; 恢复后核对 hash):
+
+1. 关闭 A. B 仍在主菜单 (不要进设置页).
+2. 给 `G:\appdata\C-Users-o_Obl\Roaming\SlayTheSpire2\mod_configs\Spire1.cfg` 加只读:
+   PowerShell `Set-ItemProperty -Path <cfg> -Name IsReadOnly -Value $true` (或
+   `attrib +R <cfg>`), 并记录 `Get-FileHash` 与字节长度.
+3. 重新启动 A, 按场景 1 的步骤建房/加入/开始一局.
+4. 期望: 新构建两端都不出现任何文件访问错误, B 仍出现 `outcome=OK applied=...`; **不应**出现
+   `could not freeze`、`outcome=REJECTED`、`Access denied`、`UnauthorizedAccessException`.
+   旧构建 (若有冻结) 会在这里被拒绝并留下 `could not freeze` —— 这正好是构建身份的反向判据.
+5. 结束后恢复: `attrib -R <cfg>` (或 `IsReadOnly=$false`), 再核对 `Get-FileHash` 与步骤 2 一致.
+   若 hash 变了, 说明有别的写者 (BaseLib 自身保存管线), 必须在日志里找到对应的
+   `Failed to save config Spire1` 之类记录并如实记录, 不得当作 MCS 通过.
+6. 全目录 hash 复核: 与步骤 1 清单比对. 允许的变化只能由 BaseLib 自己的保存产生 (日志有名),
+   MCS 侧应完全无写 (静态事实: 接收端源码无任何 `System.IO` 文件 API).
+
+场景 3 — 失败注入 (无新 mod 也能做): 启动期屏障拒绝
+
+1. 两端同场景 1 连上后, 在 B 开始前一局之前, 把 `Spire1.cfg` 的 `PureSts1Pools` 改成
+   与 A 不同的值 (A 启动后不再重读; 只改盘不影响 A 内存).
+2. A 开局. 期望 B 日志: `Config sync REJECTED before apply: startup-only config differs or cannot
+   be compared (entries=..., mismatches=...` 且**没有** `Config sync accepted from host`, 也没有
+   任何 `outcome=` 行 —— 即整包拒绝、零提交.
+3. 恢复 cfg 并把 `PureSts1Pools` 改回原值 (备份), 重启 B.
+   注: 这条覆盖的是整包拒绝路径 (零提交), 不是 setter 路径; setter 失败只有
+   "客机装一个 setter 会抛异常的夹具 mod" 才能在实机注入, 当前 mod 集里没有这样的夹具, 因此
+   生产侧的 setter 事务以 `tools/sync-probe-v3` 的原位编译断言为准 (待主会话运行).
+
+

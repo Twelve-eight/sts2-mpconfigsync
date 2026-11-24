@@ -382,6 +382,7 @@ internal static class Program
 
         Check(File.Exists(CfgPaths["ProbeTarget"]), "fixture: ProbeTarget.cfg exists on disk");
         Check(!IsReadOnly(CfgPaths["ProbeTarget"]), "fixture: ProbeTarget.cfg starts writable");
+        byte[] fixtureBytes = File.ReadAllBytes(CfgPaths["ProbeTarget"]);
 
         // Positive control: the same packet SHAPE does commit when it is valid.
         // Without this, "nothing was applied" would pass even on a broken fixture.
@@ -390,19 +391,20 @@ internal static class Program
         ConfigSyncApplier.Apply(valid, hostId);
         Check(ProbeTargetSettings.Value == "99",
               "positive control: the real applier commits a valid packet", $"(value={ProbeTargetSettings.Value})");
-        Check(IsReadOnly(CfgPaths["ProbeTarget"]),
-              "positive control: the applier froze the fixture cfg file");
-        Check(FileBackups().Count == 1,
-              "positive control: the applier recorded the file backup", $"(count={FileBackups().Count})");
+        Check(!IsReadOnly(CfgPaths["ProbeTarget"]),
+              "positive control: the applier does NOT freeze the cfg file (B01: no file I/O, no attribute change)");
+        Check(File.ReadAllBytes(CfgPaths["ProbeTarget"]).AsSpan().SequenceEqual(fixtureBytes),
+              "positive control: the cfg bytes are untouched (the override is memory-only)");
+        Check(RestoreSnapshotField().Count == 1,
+              "positive control: the applier captured the own value in memory",
+              $"(mods={RestoreSnapshotField().Count})");
 
         ConfigSyncApplier.RestoreLocalSettings();
         Check(ProbeTargetSettings.Value == "own-target-value",
               "positive control: the session restore put the fixture's own value back",
               $"(value={ProbeTargetSettings.Value})");
-        Check(!IsReadOnly(CfgPaths["ProbeTarget"]),
-              "positive control: the restore lifted the read-only flag");
-        Check(FileBackups().Count == 0 && RestoreSnapshotField().Count == 0,
-              "positive control: the session state is clean again");
+        Check(RestoreSnapshotField().Count == 0,
+              "positive control: the session snapshot is empty again");
 
         // The real test: entry 0 is a valid write, entry 1 declares 1e9 bytes.
         MainFile.Log.Lines.Clear();
@@ -422,10 +424,10 @@ internal static class Program
         Check(ProbeTargetSettings.Value == "own-target-value",
               "the fixture config still holds its own value (no half commit)",
               $"(value={ProbeTargetSettings.Value})");
-        Check(FileBackups().Count == 0,
-              "ConfigSyncApplier.FileBackups is empty", $"(count={FileBackups().Count})");
         Check(RestoreSnapshotField().Count == 0,
               "ConfigSyncApplier.RestoreSnapshot is empty", $"(count={RestoreSnapshotField().Count})");
+        Check(File.ReadAllBytes(CfgPaths["ProbeTarget"]).AsSpan().SequenceEqual(fixtureBytes),
+              "the fixture cfg bytes are still the user's own (no write ever happened)");
         Check(!CfgPaths.Values.Any(IsReadOnly),
               "no fixture cfg file gained the read-only attribute");
         Check(!LogContains("outcome="),
@@ -772,9 +774,6 @@ internal static class Program
 
     private static IDictionary Registry() =>
         (IDictionary)typeof(ModConfigRegistry).GetField("ModConfigs", Any)!.GetValue(null)!;
-
-    private static IDictionary FileBackups() =>
-        (IDictionary)typeof(ConfigSyncApplier).GetField("FileBackups", Any)!.GetValue(null)!;
 
     private static IDictionary RestoreSnapshotField() =>
         (IDictionary)typeof(ConfigSyncApplier).GetField("RestoreSnapshot", Any)!.GetValue(null)!;

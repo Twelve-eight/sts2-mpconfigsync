@@ -15,7 +15,7 @@ namespace MpConfigSync.MpConfigSyncCode;
 /// lobby.NetService), so one capture covers lobby, run and rejoin.
 /// </summary>
 [HarmonyPatch(typeof(StartRunLobby), MethodType.Constructor,
-    new[] { typeof(MegaCrit.Sts2.Core.Runs.GameMode), typeof(MegaCrit.Sts2.Core.Multiplayer.Game.INetGameService),
+    new[] { typeof(MegaCrit.Sts2.Core.Runs.GameMode), typeof(bool), typeof(MegaCrit.Sts2.Core.Multiplayer.Game.INetGameService),
         typeof(IStartRunLobbyListener), typeof(int) })]
 internal static class StartRunLobbyCtorCapturePatch
 {

@@ -31,6 +31,14 @@ namespace SyncProbeV2;
 ///   stays 0); a forced Save after apply cannot persist host values (cfg file
 ///   frozen read-only); RestoreLocalSettings puts back the user's memory value
 ///   AND the exact pre-session file bytes, and clears the read-only flag.
+///
+/// HISTORICAL (2026-10-26): this probe compiles its own Src/ snapshot of the
+/// pre-B01 receiver, whose cfg read-only freeze no longer exists in
+/// ../../mod/MpConfigSyncCode (B01, 2026-10-02: the receiver performs no file
+/// I/O). Its PASS lines describe that superseded snapshot only - do not cite
+/// them as current receiver behavior. The current contract is asserted by
+/// sync-probe-v3 (transaction/restore, compiles the production sources in
+/// place) and sync-probe-v4 (wire bounds + no-half-commit).
 /// </summary>
 internal static class Program
 {

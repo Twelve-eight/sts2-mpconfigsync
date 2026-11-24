@@ -20,8 +20,10 @@ namespace MpConfigSync.MpConfigSyncCode;
 ///
 /// AUTH MODEL (matches the engine's own handshake check,
 /// NetClientGameService.HandshakeMessageReceived: senderId == NetClient.HostNetId):
-/// a snapshot is only applied when WE are a connected client and the sender's
-/// transport identity IS the host. Hosts reject every snapshot (client -> host
+/// a snapshot is only applied when WE are a connected client and the sender id
+/// the message bus hands to HandleMessage(ulong) equals NetClient.HostNetId
+/// (fixture measurement: that id is the packet's sender field, not the transport
+/// envelope). Hosts reject every snapshot (client -> host
 /// config pushes are never legitimate); singleplayer/replay rejects because
 /// Type != Client. BaseLib's ShouldBroadcast=false only stops relaying - it
 /// does NOT stop a host from RECEIVING a client-sent message, which is exactly

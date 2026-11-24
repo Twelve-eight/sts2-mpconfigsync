@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
+using System.Reflection;
 using System.Text;
 
 using BaseLib.Abstracts;
@@ -20,13 +22,24 @@ namespace MpConfigSync.MpConfigSyncCode;
 /// LoadRunLobby.TryBeginRunForAllPlayers prefixes) and on rejoin
 /// (RunLobby.HandleClientRejoinRequestMessage prefix) - before the engine transmits
 /// its begin-run / rejoin-response traffic on the same reliable ordered channel, so
-/// the client applies the config BEFORE its own run initialisation reads it. The old
-/// reasoning ("buffer to Launch, deliver mid- InitialiseShared would be worse")
+/// the client can apply the run-start-safe config BEFORE its own run initialisation
+/// reads it.
+/// The old reasoning ("buffer to Launch, deliver mid- InitialiseShared would be worse")
 /// confused "does not race the synchronizers" with "arrives before the first
 /// consumer": buffered application at Launch is AFTER Populate/GenerateRooms/
 /// OnRunCreated/Qurious prefix generation and can never satisfy MCS-1
 /// (astra-advice 2026-09-12). The RunManager.InitializeShared postfix push remains
 /// as a backstop re-assertion only.
+///
+/// STARTUP-ONLY BOUNDARY: this barrier is a run-start ordering guarantee, not a
+/// process-initializer barrier. The maintained startup consumers
+/// Spire1.PureSts1Pools, Spire1.IgnoreMpModDifferences, and
+/// ChaosBridge.DeterministicPoolOrder are already consumed before InitializeShared.
+/// HandleMessage compares those received values with the live local values; if a
+/// value differs or cannot be compared safely, the whole packet is rejected and the
+/// log states that the host value requires the next process start. Equal values may
+/// continue through the normal applier. No cfg file is written and no buffered
+/// delivery behavior is changed by this guard.
 ///
 /// Bounds (MCS-5; pre-allocation guarantee tightened R05-01/R05-04 2026-09-22):
 /// the caps are enforced BEFORE any allocation the packet can drive. Deserialize
@@ -100,6 +113,151 @@ public class ConfigSyncMessage : ICustomMessage
     public List<string> ModIds = new();
     public List<string> PropertyNames = new();
     public List<string> Values = new();
+    // These properties are consumed by maintained mods during their process
+    // initializers, before RunManager.InitializeShared can receive a host snapshot.
+    // A current-process SetValue cannot retroactively change those registrations or
+    // patch mounts. The tuple set is deliberately explicit and fail-closed: adding
+    // a future startup consumer requires an evidence-backed entry here.
+    private static readonly HashSet<(string ModId, string PropertyName)> StartupOnlyProperties = new()
+    {
+        ("Spire1", "PureSts1Pools"),
+        ("Spire1", "IgnoreMpModDifferences"),
+        ("ChaosBridge", "DeterministicPoolOrder")
+    };
+
+    /// <summary>
+    /// Receiver-local compatibility facts. This is diagnostic metadata only; it is
+    /// never serialized. Keeping it local preserves the existing wire format so an
+    /// older peer can still deserialize the message.
+    /// </summary>
+    internal readonly record struct CompatibilityReport(
+        int EntryCount,
+        int MissingModEntries,
+        int MissingPropertyEntries,
+        int ResolutionFailures,
+        int MissingModCount,
+        int StartupOnlyEntries,
+        int StartupOnlyMismatches,
+        int StartupOnlyUncertain)
+    {
+        internal int VersionDriftEntries => MissingModEntries + MissingPropertyEntries + ResolutionFailures;
+
+        internal bool HasStartupBarrierFailure => StartupOnlyMismatches > 0 || StartupOnlyUncertain > 0;
+    }
+
+    internal static bool IsStartupOnlyProperty(string? modId, string? propertyName) =>
+        modId != null && propertyName != null && StartupOnlyProperties.Contains((modId, propertyName));
+
+    /// <summary>
+    /// Resolves the received entries against the local BaseLib config registry for
+    /// diagnostics before Apply. Missing mods/properties are version drift and are
+    /// counted, but remain tolerated by ConfigSyncApplier. Startup-only values are
+    /// compared to the live local value; a mismatch or an unsafe comparison is a
+    /// process-start boundary, so the caller must reject the whole packet rather than
+    /// claim that a late SetValue changed already-created pools or patches.
+    /// </summary>
+    internal CompatibilityReport InspectCompatibility()
+    {
+        int count = Math.Min(Math.Min(ModIds.Count, PropertyNames.Count), Values.Count);
+        var maps = new Dictionary<string, Dictionary<string, PropertyInfo>?>(StringComparer.Ordinal);
+        var missingModIds = new HashSet<string>(StringComparer.Ordinal);
+        int missingModEntries = 0;
+        int missingPropertyEntries = 0;
+        int resolutionFailures = 0;
+        int startupOnlyEntries = 0;
+        int startupOnlyMismatches = 0;
+        int startupOnlyUncertain = 0;
+
+        for (int i = 0; i < count; i++)
+        {
+            string? modId = ModIds[i];
+            string? propertyName = PropertyNames[i];
+            bool startupOnly = IsStartupOnlyProperty(modId, propertyName);
+            if (startupOnly)
+            {
+                startupOnlyEntries++;
+            }
+
+            if (string.IsNullOrEmpty(modId))
+            {
+                missingModEntries++;
+                continue;
+            }
+
+            Dictionary<string, PropertyInfo>? props;
+            if (!maps.TryGetValue(modId, out props))
+            {
+                try
+                {
+                    props = ConfigPropertyScanner.Resolve(modId);
+                    maps[modId] = props;
+                }
+                catch
+                {
+                    resolutionFailures++;
+                    if (startupOnly)
+                    {
+                        startupOnlyUncertain++;
+                    }
+                    continue;
+                }
+            }
+
+            if (props == null)
+            {
+                missingModEntries++;
+                missingModIds.Add(modId);
+                if (startupOnly)
+                {
+                    startupOnlyUncertain++;
+                }
+                continue;
+            }
+            if (string.IsNullOrEmpty(propertyName) || !props.TryGetValue(propertyName, out PropertyInfo? prop) || prop == null)
+            {
+                missingPropertyEntries++;
+                if (startupOnly)
+                {
+                    startupOnlyUncertain++;
+                }
+                continue;
+            }
+            if (!startupOnly)
+            {
+                continue;
+            }
+
+            try
+            {
+                object? hostValue = TypeDescriptor.GetConverter(prop.PropertyType)
+                    .ConvertFromInvariantString(Values[i]);
+                if (hostValue == null)
+                {
+                    startupOnlyUncertain++;
+                    continue;
+                }
+                object? localValue = prop.GetValue(null);
+                if (!Equals(hostValue, localValue))
+                {
+                    startupOnlyMismatches++;
+                }
+            }
+            catch
+            {
+                startupOnlyUncertain++;
+            }
+        }
+
+        return new CompatibilityReport(
+            count,
+            missingModEntries,
+            missingPropertyEntries,
+            resolutionFailures,
+            missingModIds.Count,
+            startupOnlyEntries,
+            startupOnlyMismatches,
+            startupOnlyUncertain);
+    }
 
     /// <summary>
     /// Per-thread scratch buffer for <see cref="ReadBoundedString"/>. Reused across
@@ -247,6 +405,30 @@ public class ConfigSyncMessage : ICustomMessage
 
     public void HandleMessage(ulong senderId)
     {
+        // Do not inspect untrusted packets before the existing transport-level
+        // authorization. ConfigSyncApplier repeats the same check before any
+        // mutation; this preflight only adds diagnostics and the startup barrier.
+        if (MpConfigSyncConfig.Enabled && MpNetSession.AuthorizeSnapshot(senderId).Allowed)
+        {
+            CompatibilityReport compatibility = InspectCompatibility();
+            if (compatibility.VersionDriftEntries > 0)
+            {
+                MainFile.Log.Warn($"Config sync version drift: entries={compatibility.VersionDriftEntries}, "
+                                  + $"missingMods={compatibility.MissingModCount} (entries={compatibility.MissingModEntries}), "
+                                  + $"missingProperties={compatibility.MissingPropertyEntries}, "
+                                  + $"resolutionFailures={compatibility.ResolutionFailures}");
+            }
+            if (compatibility.HasStartupBarrierFailure)
+            {
+                MainFile.Log.Error($"Config sync REJECTED before apply: startup-only config differs or cannot be compared "
+                                   + $"(entries={compatibility.StartupOnlyEntries}, mismatches={compatibility.StartupOnlyMismatches}, "
+                                   + $"uncertain={compatibility.StartupOnlyUncertain}); "
+                                   + "the current process already consumed this key before InitializeShared; "
+                                   + "the host value requires the next process start");
+                return;
+            }
+        }
+
         ConfigSyncApplier.Apply(this, senderId);
     }
 }

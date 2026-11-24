@@ -33,7 +33,7 @@ internal static class ConfigPropertyScanner
     internal static List<PropertyInfo> Scan(Type configType)
     {
         // Exact mirror of BaseLib's ModConfig.CheckConfigProperties
-        // (BaseLib/Config/ModConfig.cs:143-153):
+        // (BaseLib.Config/ModConfig.cs:149-177 in the reference source):
         //     foreach (var property in configType.GetProperties())
         //     {
         //         if (property.GetCustomAttribute<ConfigIgnoreAttribute>() != null) continue;
@@ -144,7 +144,7 @@ internal sealed class OperationPropertyMap
         // A null modId cannot key the dictionary; resolve it directly so the
         // registry decides, exactly like the per-entry Resolve this replaces.
         if (modId == null)
-            return ConfigPropertyScanner.Resolve(modId);
+            return null;
         if (_maps.TryGetValue(modId, out Dictionary<string, PropertyInfo>? cached))
             return cached;
         Dictionary<string, PropertyInfo>? resolved = ConfigPropertyScanner.Resolve(modId);

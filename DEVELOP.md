@@ -108,24 +108,37 @@ public NetTransferMode Mode => NetTransferMode.Reliable;
    把用户自己的值原样写回 (会话级语义, 用户配置文件永不被改写). 本条为
    commit 772958af 的最终设计; 早期草稿写的"落盘"已废弃.
 
-### 文件冻结与恢复契约 (MCS-3; 冻结/恢复失败语义由 WS-0916-04 定稿)
+### 事务与恢复契约 (B01, 2026-10-02; 取代 MCS-3/WS-0916-04 的文件冻结方案)
 
-- **冻结增量且幂等**: 每个包只冻结该包点名的 mod; 后续包新引入的 mod 在该包到达时
-  冻结, 不因早先的包冻结过别的 mod 而跳过. 已冻结的路径保留会话前原始字节, 不重复
-  快照. 若某条目的只读标志在上次还原中已被清除但字节写回失败 (条目被保留), 后续包
-  会重新冻结该文件, 避免留下"有备份却未受保护"的空洞; 保留的原始字节不动.
-- **冻结失败策略 = 整包拒绝 (all-or-nothing)**: 包内任一 mod 的 cfg 在磁盘上存在却
-  无法快照并置为只读 -> 在第一个 `SetValue` 之前拒绝整包, 以 Error 级别记
-  `outcome=REJECTED`, 不提交任何值. 因此不存在"半应用", 也不存在"文件未受保护却
-  写入了主机值". 磁盘上没有 cfg 的 mod 没有用户字节需要保护, 不算失败也不阻塞. 该
-  策略与 MCS-5 的整包校验口径一致.
-- **setter 失败**: 单条 setter 抛异常不中断其余条目 (mod bug 不应崩游戏), 但最终
-  日志行必须给出 `outcome=PARTIAL` 及精确的 applied/failed/skipped 计数, 半提交不
-  静默.
-- **恢复无损**: 只有字节与只读标志都成功还原的条目才会从 `FileBackups` 移除; 还原
-  失败的条目**保留** (它是本会话用户字节的唯一副本) 并以 Error 级别报告, 后续
-  CleanUp 或用户仍可恢复. 绝不无条件清空 `FileBackups`.
-- 不变: 应用路径不触发 `Changed()`, 只用 `ConfigReloaded()` 刷 UI.
+- **无文件 I/O**: 接收端绝不再读取, 写入, 加锁或改变 `mod_configs/*.cfg` 的只读
+  属性. 旧实现的 `File.ReadAllBytes` / `SetAttributes(ReadOnly)` /
+  `File.WriteAllBytes` 作用于两个安装共享的 AppData 目录, 崩溃会残留只读标志, 且
+  与"本 mod 不写盘"的文档契约直接矛盾. 覆盖只存在于内存; cfg 文件的唯一写入者是
+  BaseLib 自己的保存管线.
+- **全量先校验 (all-or-nothing validation)**: 任何已解析属性转换失败 -> 整包拒绝,
+  以 Error 级别给出 `outcome=REJECTED applied=0/N (skipped=..., failed=..., excluded=...)`,
+  不提交任何值.
+- **提交期失败显式化**: 原值快照失败或 setter 抛异常都只跳过该条 (不提交该条主机
+  值), 不中断其余条目, 最终给出 `outcome=OK|PARTIAL applied=A/N (skipped=...,
+  failed=... = S snapshot + T setter (R rolled back), excluded=0)`, 半提交不静默.
+- **setter 失败即回滚该条原值快照 (2026-10-26)**: setter 抛异常说明该条主机值从未
+  提交, 因此本次提交刚建立的原值快照不应留下. `SnapshotOwnValue` 返回"本次新建",
+  此时 `RollBackOwnValue` 把用户原值写回并删除该条目 (仅在写回成功后删除); 属性
+  回到本包之前的确切值, 用户之后的新编辑仍能被下一次下发捕获. 两条分支:
+  - 回滚失败 → 条目**保留** (仍是原值唯一副本), 按 Error 报告, 后续 CleanUp 再试.
+  - 该属性已有**更早条目** (前一个数据包或本包更早的一条) 提交的主机值时
+    (`capturedNow == false`) 不回滚 —— 回滚会把那个主机值一起还原; 条目保留并在日志
+    说明 "an earlier host value stays in effect".
+  没有这一条时, 抛异常的 setter 会让该属性永久无法重新捕获, 且每次 CleanUp 都重试
+  同一个抛异常的 setter (`outcome=PARTIAL` 永久), 用户中途改的值最终被旧快照覆盖.
+- **内存恢复无损**: 只有某属性的原值转换 + `SetValue` 都成功后才从
+  `RestoreSnapshot` 移除; 失败条目**保留** (它是本会话用户原值的唯一副本) 并以
+  Error 级别报告, 后续 CleanUp 再试. 绝不无条件清空 `RestoreSnapshot`; 恢复路径
+  给出 `outcome=OK|PARTIAL restored=... failed=... skipped=... remaining=...`.
+  该不变式即旧"字节与属性都成功才移除备份"的内存版本; 无文件 I/O 后不再存在
+  `FileBackups`.
+- 不变: 应用路径不触发 `Changed()`, 只用 `ConfigReloaded()` 刷 UI; 会话级覆盖,
+  CleanUp 恢复用户自己的值.
 
 ### 范围
 
