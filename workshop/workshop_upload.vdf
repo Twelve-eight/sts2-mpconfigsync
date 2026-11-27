@@ -59,6 +59,6 @@
 [/list]
 
 [i]The Workshop BaseLib often lags behind the official GitHub. If BaseLib errors after a game update, grab the latest release from GitHub (link above), unzip into the mods folder, and unsubscribe from the Workshop copy to avoid double-loading.[/i]"
-	"changenote"		"v0.1.3: 从资源包移除意外残留的旧版本 DLL/PDB 文件 (MpConfigSync.pck 仅打包本地化资源) 并清理工程内历史测试构建产物. --- v0.1.2: 主菜单右下角新增游戏内容 mod 计数与同步兼容性自检."
+	"changenote"		"v0.1.4: 适配游戏 v0.114.0. 包含 v0.1.3 改动: MpConfigSync.pck 仅打包本地化资源并清理历史构建产物. --- v0.1.2: 主菜单右下角新增游戏内容 mod 计数与同步兼容性自检."
 	"publishedfileid"		"3799210379"
 }
